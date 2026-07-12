@@ -34,4 +34,4 @@ jobs:
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             cd /var/www/wsp
             npm install --no-audit --no-fund
-            pm2 startOrReload ecosystem.config.js --env production
+            pm2 restart wsp-allmotors --update-env
