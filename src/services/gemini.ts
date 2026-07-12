@@ -78,7 +78,7 @@ export class GeminiService {
     async chat(message: string, history: any[] = []) {
         try {
             const result = await client.models.generateContent({
-                model: "gemini-3.1-flash-lite",
+                model: "gemini-2.5-flash",
                 contents: [
                     ...history,
                     { role: "user", parts: [{ text: message }] }
@@ -137,7 +137,7 @@ export class GeminiService {
                 }
 
                 const finalResult = await client.models.generateContent({
-                    model: "gemini-3.1-flash-lite",
+                    model: "gemini-2.5-flash",
                     contents: [
                         ...history,
                         { role: "user", parts: [{ text: message }] },
