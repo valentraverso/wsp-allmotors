@@ -3,6 +3,7 @@ module.exports = {
     {
       name: "wsp-allmotors",
       script: "src/index.ts",
+      cwd: "/var/www/wsp",
       interpreter: "node",
       interpreter_args: "-r ts-node/register",
       watch: false,

@@ -1,8 +1,9 @@
 import { GoogleGenAI, Tool, Type } from "@google/genai";
 import dotenv from "dotenv";
 import axios from "axios";
+import path from "path";
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, "../../.env") });
 
 const client = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY || "",

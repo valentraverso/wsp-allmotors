@@ -20,7 +20,7 @@ import path from 'path';
 import qrcodeTerminal from 'qrcode-terminal';
 import geminiService from './services/gemini';
 
-dotenv.config();
+dotenv.config({ path: path.join(__dirname, '../.env') });
 
 // Mapa para manejar el estado de los usuarios (Chatbot) y caché de mensajes procesados
 const userStates = new Map<string, { step: string, mediaMessage?: any, history: any[] }>();
