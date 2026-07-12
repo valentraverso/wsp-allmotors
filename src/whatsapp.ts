@@ -22,8 +22,9 @@ import geminiService from './services/gemini';
 
 dotenv.config();
 
-// Mapa para manejar el estado de los usuarios (Chatbot)
+// Mapa para manejar el estado de los usuarios (Chatbot) y caché de mensajes procesados
 const userStates = new Map<string, { step: string, mediaMessage?: any, history: any[] }>();
+const processedMessages = new Set<string>();
 
 class WhatsappService {
     public sock: WASocket | null = null;
@@ -150,7 +151,20 @@ class WhatsappService {
     }
 
     private async handleIncomingMessage(msg: proto.IWebMessageInfo) {
-        if (!msg.key?.remoteJid) return;
+        if (!msg.key?.remoteJid || !msg.key?.id) return;
+
+        const messageId = msg.key.id;
+        if (processedMessages.has(messageId)) {
+            console.log(`[WSP] Message ${messageId} already processed, skipping.`);
+            return;
+        }
+        processedMessages.add(messageId);
+        if (processedMessages.size > 500) {
+            const firstVal = processedMessages.values().next().value;
+            if (firstVal !== undefined) {
+                processedMessages.delete(firstVal);
+            }
+        }
 
         const rawJid = msg.key.remoteJid;
         const senderJid = this.decodeJid(rawJid);
