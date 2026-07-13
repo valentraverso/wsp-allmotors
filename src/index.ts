@@ -29,6 +29,23 @@ app.post('/send-message', authMiddleware, async (req, res) => {
     }
 });
 
+// Endpoint para obtener los grupos participando
+app.get('/groups', authMiddleware, async (req, res) => {
+    try {
+        if (!whatsappService.sock) {
+            return res.status(400).json({ error: 'WhatsApp socket not initialized' });
+        }
+        const groups = await whatsappService.sock.groupFetchAllParticipating();
+        const list = Object.keys(groups).map(jid => ({
+            id: jid,
+            name: groups[jid].subject
+        }));
+        res.status(200).json({ status: 'success', groups: list });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Endpoint para obtener el QR
 app.get('/qr', async (req, res) => {
     const qr = whatsappService.getQR();
