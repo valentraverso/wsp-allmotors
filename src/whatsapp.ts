@@ -343,8 +343,19 @@ class WhatsappService {
         
         let jid = target;
         if (!jid.includes('@')) {
-            jid = jid.replace(/\D/g, '');
-            jid += '@s.whatsapp.net';
+            let cleanNumber = jid.replace(/\D/g, '');
+            // Formatear números de Argentina de forma robusta para WhatsApp
+            if (cleanNumber.length === 10) {
+                // E.g. 3424305393 -> 5493424305393
+                cleanNumber = '549' + cleanNumber;
+            } else if (cleanNumber.startsWith('54') && !cleanNumber.startsWith('549') && cleanNumber.length === 12) {
+                // E.g. 543424305393 -> 5493424305393
+                cleanNumber = '549' + cleanNumber.substring(2);
+            } else if (cleanNumber.startsWith('0') && cleanNumber.length === 11) {
+                // E.g. 03424305393 -> 5493424305393
+                cleanNumber = '549' + cleanNumber.substring(1);
+            }
+            jid = cleanNumber + '@s.whatsapp.net';
         }
 
         try {
