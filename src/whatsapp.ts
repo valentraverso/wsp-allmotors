@@ -25,6 +25,7 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 // Mapa para manejar el estado de los usuarios (Chatbot) y caché de mensajes procesados
 const userStates = new Map<string, { step: string, mediaMessage?: any, history: any[] }>();
 const processedMessages = new Set<string>();
+const groupCache = new Map<string, any>();
 
 class WhatsappService {
     public sock: WASocket | null = null;
@@ -69,12 +70,35 @@ class WhatsappService {
                 connectTimeoutMs: 60000,
                 defaultQueryTimeoutMs: 60000,
                 keepAliveIntervalMs: 30000,
+                cachedGroupMetadata: async (jid) => groupCache.get(jid),
                 getMessage: async (key: WAMessageKey): Promise<WAMessageContent | undefined> => {
                     return undefined;
                 }
             });
 
             this.sock.ev.on('creds.update', saveCreds);
+
+            this.sock.ev.on('groups.update', async ([event]) => {
+                try {
+                    if (this.sock && event.id) {
+                        const metadata = await this.sock.groupMetadata(event.id);
+                        groupCache.set(event.id, metadata);
+                    }
+                } catch (e) {
+                    console.error('[WSP] Error updating group metadata:', e);
+                }
+            });
+
+            this.sock.ev.on('group-participants.update', async (event) => {
+                try {
+                    if (this.sock && event.id) {
+                        const metadata = await this.sock.groupMetadata(event.id);
+                        groupCache.set(event.id, metadata);
+                    }
+                } catch (e) {
+                    console.error('[WSP] Error updating group metadata on participant change:', e);
+                }
+            });
 
             this.sock.ev.on('connection.update', async (update: Partial<ConnectionState>) => {
                 const { connection, lastDisconnect, qr } = update;
