@@ -56,7 +56,8 @@ class WhatsappService {
                 this.sock = null;
             }
 
-            const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+            const authFolder = process.env.AUTH_DIR || (process.env.WSP_MODE === 'bot' ? 'auth_info_baileys_bot' : 'auth_info_baileys_internal');
+            const { state, saveCreds } = await useMultiFileAuthState(authFolder);
             const { version } = await fetchLatestBaileysVersion();
             
             this.sock = makeWASocket({
@@ -104,7 +105,7 @@ class WhatsappService {
                 const { connection, lastDisconnect, qr } = update;
                 if (qr) {
                     this.qr = qr;
-                    console.log('New QR Code generated. Scan with your WhatsApp:');
+                    console.log(`[WSP ${process.env.WSP_MODE || 'service'}] New QR Code generated. Scan with your WhatsApp:`);
                     qrcodeTerminal.generate(qr, { small: true });
                 }
                 
@@ -113,7 +114,7 @@ class WhatsappService {
                     const statusCode = error?.output?.statusCode;
                     const errorMessage = error?.message || '';
                     
-                    console.log(`Connection closed. Status code: ${statusCode}. Error: ${errorMessage}`);
+                    console.log(`[WSP ${process.env.WSP_MODE || 'service'}] Connection closed. Status code: ${statusCode}. Error: ${errorMessage}`);
                     
                     this.isInitializing = false;
                     
@@ -122,10 +123,10 @@ class WhatsappService {
                     const isConflict = statusCode === 440 || errorMessage.includes('conflict');
 
                     if (statusCode === DisconnectReason.loggedOut || isEncryptionError) {
-                        console.log('Session error or logged out. Clearing credentials...');
+                        console.log(`[WSP ${process.env.WSP_MODE || 'service'}] Session error or logged out. Clearing credentials folder (${authFolder})...`);
                         try {
-                            if (fs.existsSync('auth_info_baileys')) {
-                                fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+                            if (fs.existsSync(authFolder)) {
+                                fs.rmSync(authFolder, { recursive: true, force: true });
                             }
                         } catch (err) {
                             console.error('Error clearing credentials folder:', err);
@@ -142,12 +143,18 @@ class WhatsappService {
                 } else if (connection === 'open') {
                     this.qr = null;
                     this.isInitializing = false;
-                    console.log('✓ WhatsApp connection established!');
+                    console.log(`✓ [WSP ${process.env.WSP_MODE || 'service'}] WhatsApp connection established!`);
                 }
             });
 
             // Listener de mensajes recibidos
             this.sock.ev.on('messages.upsert', async (m) => {
+                const wspMode = process.env.WSP_MODE || 'bot';
+                // Si la instancia es exclusivamente de notificaciones internas ('internal'), no responde conversaciones a clientes
+                if (wspMode === 'internal') {
+                    return;
+                }
+
                 if (m.type === 'notify') {
                     for (const msg of m.messages) {
                         if (!msg.key.fromMe) {
