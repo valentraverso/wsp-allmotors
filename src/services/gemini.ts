@@ -99,7 +99,7 @@ export class GeminiService {
     async chat(message: string, history: any[] = []) {
         try {
             const result = await client.models.generateContent({
-                model: "gemini-3.1-flash-lite",
+                model: "gemini-3.6-flash",
                 contents: [
                     ...history,
                     { role: "user", parts: [{ text: message }] }
@@ -137,7 +137,7 @@ export class GeminiService {
                             const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
                             const wspAuthCode = process.env.WSP_AUTH_CODE;
                             
-                            const res = await axios.post(`${backendUrl}/api/v1/finance/preapproval`, {
+                            const res = await axios.post(`${backendUrl}/api/v1/finance/preapproval-financials`, {
                                 dni: args.dni,
                                 gender: args.gender,
                                 cellphone: ""
@@ -161,7 +161,7 @@ export class GeminiService {
                 }
 
                 const finalResult = await client.models.generateContent({
-                    model: "gemini-3.1-flash-lite",
+                    model: "gemini-3.6-flash",
                     contents: [
                         ...history,
                         { role: "user", parts: [{ text: message }] },
