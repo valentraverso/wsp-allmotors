@@ -364,29 +364,56 @@ class WhatsappService {
     }
 
     /**
-     * Envía un mensaje de texto a un número o JID específico con reintentos
+     * Envía un mensaje de texto a un número o JID específico con reintentos y consulta onWhatsApp
      */
     async sendMessage(target: string, message: string, retryCount = 0): Promise<void> {
         if (!this.sock) {
             console.error('[WSP] Socket not initialized. Cannot send message.');
-            return;
+            throw new Error('WhatsApp socket not initialized');
         }
         
-        let jid = target;
-        if (!jid.includes('@')) {
+        let jid = target.trim();
+
+        // 1. Manejo de Grupos de WhatsApp
+        if (jid.includes('@g.us') || (jid.length > 15 && !jid.includes('@') && jid.startsWith('120'))) {
+            if (!jid.endsWith('@g.us')) {
+                jid = jid + '@g.us';
+            }
+        } 
+        // 2. Manejo de Números Individuales
+        else if (!jid.includes('@')) {
             let cleanNumber = jid.replace(/\D/g, '');
-            // Formatear números de Argentina de forma robusta para WhatsApp
+            
+            // Normalización para Argentina
             if (cleanNumber.length === 10) {
-                // E.g. 3424305393 -> 5493424305393
                 cleanNumber = '549' + cleanNumber;
             } else if (cleanNumber.startsWith('54') && !cleanNumber.startsWith('549') && cleanNumber.length === 12) {
-                // E.g. 543424305393 -> 5493424305393
                 cleanNumber = '549' + cleanNumber.substring(2);
             } else if (cleanNumber.startsWith('0') && cleanNumber.length === 11) {
-                // E.g. 03424305393 -> 5493424305393
                 cleanNumber = '549' + cleanNumber.substring(1);
             }
-            jid = cleanNumber + '@s.whatsapp.net';
+
+            // Consultar a WhatsApp (onWhatsApp) para obtener el JID exacto registrado en los servidores de Meta (con o sin '9')
+            try {
+                const results = await this.sock.onWhatsApp(cleanNumber);
+                if (results && results.length > 0 && results[0]?.exists && results[0]?.jid) {
+                    jid = results[0].jid;
+                    console.log(`[WSP] Verified WhatsApp JID via onWhatsApp: ${jid}`);
+                } else {
+                    // Si no lo encuentra con '549', probar con el formato sin '9' (54...)
+                    const altNumber = cleanNumber.startsWith('549') ? '54' + cleanNumber.substring(3) : cleanNumber;
+                    const altResults = await this.sock.onWhatsApp(altNumber);
+                    if (altResults && altResults.length > 0 && altResults[0]?.exists && altResults[0]?.jid) {
+                        jid = altResults[0].jid;
+                        console.log(`[WSP] Verified alt WhatsApp JID via onWhatsApp: ${jid}`);
+                    } else {
+                        jid = cleanNumber + '@s.whatsapp.net';
+                    }
+                }
+            } catch (err: any) {
+                console.warn(`[WSP] Could not query onWhatsApp for ${cleanNumber}:`, err.message);
+                jid = cleanNumber + '@s.whatsapp.net';
+            }
         }
 
         try {
@@ -394,15 +421,16 @@ class WhatsappService {
             await this.sock.sendMessage(jid, { text: message });
             console.log(`[WSP] Message successfully handed to Baileys for ${jid}`);
         } catch (error: any) {
-            const isClosed = error.message?.includes('Closed') || error.message?.includes('1006');
+            const isClosed = error.message?.includes('Closed') || error.message?.includes('1006') || error.message?.includes('connection');
             
             if (isClosed && retryCount < 2) {
-                console.log(`[WSP] Connection closed during send. Retrying in 3s...`);
+                console.log(`[WSP] Connection issues during send. Retrying in 3s...`);
                 await new Promise(resolve => setTimeout(resolve, 3000));
                 return this.sendMessage(target, message, retryCount + 1);
             }
             
             console.error(`[WSP] Failed to send message to ${jid} after retries:`, error.message);
+            throw error;
         }
     }
 
