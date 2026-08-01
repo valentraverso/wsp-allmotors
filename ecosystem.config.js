@@ -14,6 +14,7 @@ module.exports = {
         PORT: 4001,
         WSP_MODE: "internal",
         AUTH_DIR: "auth_info_baileys_internal",
+        BACKEND_API_KEY: process.env.BACKEND_API_KEY || "",
         WSP_AUTH_CODE: process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026"
       },
     },
@@ -31,6 +32,7 @@ module.exports = {
         PORT: 4002,
         WSP_MODE: "bot",
         AUTH_DIR: "auth_info_baileys_bot",
+        BACKEND_API_KEY: process.env.BACKEND_API_KEY || "",
         WSP_AUTH_CODE: process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026"
       },
     },

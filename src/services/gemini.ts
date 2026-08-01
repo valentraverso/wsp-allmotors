@@ -165,7 +165,7 @@ export class GeminiService {
                         console.log("[Gemini] Checking repuesto stock:", args);
                         try {
                             const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
-                            const wspAuthCode = process.env.WSP_AUTH_CODE;
+                            const apiKey = process.env.BACKEND_API_KEY || process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026";
                             
                             const res = await axios.get(`${backendUrl}/api/v1/repuestos/stock/search`, {
                                 params: { 
@@ -173,7 +173,10 @@ export class GeminiService {
                                     code: args.code || "", 
                                     locality: args.locality 
                                 },
-                                headers: { 'x-wsp-auth-code': wspAuthCode }
+                                headers: { 
+                                    'x-api-key': apiKey,
+                                    'x-wsp-auth-code': apiKey 
+                                }
                             });
                             functionResult = res.data;
                         } catch (error: any) {
@@ -190,7 +193,7 @@ export class GeminiService {
                     } else if (name === "checkFinancing") {
                         try {
                             const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
-                            const wspAuthCode = process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026";
+                            const apiKey = process.env.BACKEND_API_KEY || process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026";
                             
                             const dniClean = (args.dni || "").toString().replace(/\D/g, "");
                             const rawGender = (args.gender || "M").toString().toUpperCase();
@@ -204,8 +207,8 @@ export class GeminiService {
                                 cellphone: ""
                             }, {
                                 headers: { 
-                                    'x-api-key': wspAuthCode,
-                                    'x-wsp-auth-code': wspAuthCode 
+                                    'x-api-key': apiKey,
+                                    'x-wsp-auth-code': apiKey 
                                 },
                                 timeout: 25000
                             });
