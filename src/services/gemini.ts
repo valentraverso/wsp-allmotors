@@ -124,6 +124,14 @@ const tools: Tool[] = [
     }
 ];
 
+function getApiKey(): string {
+    if (!process.env.BACKEND_API_KEY) {
+        dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+        dotenv.config({ path: path.join(__dirname, '../../.env') });
+    }
+    return (process.env.BACKEND_API_KEY || process.env.SYSTEM_ADMIN_API_KEY || process.env.EXTERNAL_SERVICE_API_KEY || "").trim();
+}
+
 export class GeminiService {
     async chat(message: string, history: any[] = []) {
         try {
@@ -163,7 +171,7 @@ export class GeminiService {
                         functionResult = { status: "success", message: "Turno de taller registrado internamente de manera exitosa (Mock)" };
                     } else if (name === "checkRepuestoStock") {
                         const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
-                        const apiKey = process.env.BACKEND_API_KEY || "";
+                        const apiKey = getApiKey();
                         
                         console.log(`[Gemini Tool checkRepuestoStock] Searching: "${args.repuestoName || args.code}" | Locality: ${args.locality}`);
                         console.log(`[Gemini Tool checkRepuestoStock] API Key Header: ${apiKey ? (apiKey.substring(0, 8) + '...') : '⚠️ MISSING / EMPTY'}`);
@@ -195,7 +203,7 @@ export class GeminiService {
                         }
                     } else if (name === "checkFinancing") {
                         const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
-                        const apiKey = process.env.BACKEND_API_KEY || "";
+                        const apiKey = getApiKey();
                         
                         const dniClean = (args.dni || "").toString().replace(/\D/g, "");
                         const rawGender = (args.gender || "M").toString().toUpperCase();
