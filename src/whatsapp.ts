@@ -310,14 +310,11 @@ class WhatsappService {
         // Refrescar cada 5 minutos
         if (Date.now() - this.lastConfigFetch > 5 * 60 * 1000) {
             try {
-                const token = process.env.BACKEND_API_KEY || process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026";
+                const token = process.env.BACKEND_API_KEY || "";
                 console.log(`[WSP] Fetching whitelist. Token defined: ${!!token}`);
                 
                 const response = await axios.get(`${process.env.BACKEND_URL}/api/v1/config/whatsapp`, {
-                    headers: { 
-                        'x-api-key': token,
-                        'x-wsp-auth-code': token 
-                    }
+                    headers: { 'x-api-key': token }
                 });
                 this.allowedNumbers = response.data.allowed_numbers || [];
                 console.log(`[WSP] Whitelist refreshed. Count: ${this.allowedNumbers.length}`);
