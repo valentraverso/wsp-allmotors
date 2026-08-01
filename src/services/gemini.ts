@@ -299,33 +299,40 @@ export class GeminiService {
                         console.log(`[Gemini Tool getSucursales] Locality Query: "${args.locality}"`);
 
                         try {
-                            const res = await axios.get(`${backendUrl}/api/v1/sucursal/public/list`, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 10000
-                            });
+                            let res: any;
+                            try {
+                                res = await axios.get(`${backendUrl}/api/v1/sucursales/public/list`, {
+                                    headers: { 'x-api-key': apiKey },
+                                    timeout: 10000
+                                });
+                            } catch (e) {
+                                res = await axios.get(`${backendUrl}/api/v1/sucursales/all`, {
+                                    headers: { 'x-api-key': apiKey },
+                                    timeout: 10000
+                                });
+                            }
 
                             const allSucursales: any[] = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : []);
                             const queryClean = (args.locality || "").toString().toLowerCase().trim();
 
+                            // Filtrar buscando por la variable Ciudad / ciudad
                             const filtered = allSucursales.filter((s: any) => {
-                                const ciudad = (s.ciudad || "").toLowerCase();
-                                const provincia = (s.provincia || "").toLowerCase();
-                                const nombre = (s.nombre || "").toLowerCase();
-                                const direccion = (s.direccion || "").toLowerCase();
+                                const ciudadStr = (s.ciudad || s.Ciudad || s.nombre || s.Nombre || "").toString().toLowerCase();
+                                const provinciaStr = (s.provincia || s.Provincia || "").toString().toLowerCase();
+                                const direccionStr = (s.direccion || s.Direccion || "").toString().toLowerCase();
 
-                                return ciudad.includes(queryClean) || queryClean.includes(ciudad) ||
-                                       provincia.includes(queryClean) || queryClean.includes(provincia) ||
-                                       nombre.includes(queryClean) || queryClean.includes(nombre) ||
-                                       direccion.includes(queryClean);
+                                return ciudadStr.includes(queryClean) || queryClean.includes(ciudadStr) ||
+                                       provinciaStr.includes(queryClean) || queryClean.includes(provinciaStr) ||
+                                       direccionStr.includes(queryClean);
                             });
 
                             const listToReturn = filtered.length > 0 ? filtered : allSucursales;
                             const resultList = listToReturn.map((s: any) => ({
-                                nombre: s.nombre,
-                                direccion: s.direccion,
-                                ciudad: s.ciudad,
-                                provincia: s.provincia,
-                                telefono: s.telefono
+                                nombre: s.nombre || s.Nombre || "Sucursal All Motors",
+                                direccion: s.direccion || s.Direccion || "Dirección no especificada",
+                                ciudad: s.ciudad || s.Ciudad || "",
+                                provincia: s.provincia || s.Provincia || "",
+                                telefono: s.telefono || s.Telefono || ""
                             }));
 
                             console.log(`[Gemini Tool getSucursales] ✅ Success! Returned ${resultList.length} sucursales.`);
@@ -337,6 +344,10 @@ export class GeminiService {
                             };
                         } catch (error: any) {
                             console.error(`[Gemini Tool getSucursales] ❌ ERROR: ${error.message}`);
+                            if (error.response) {
+                                console.error(`[Gemini Tool getSucursales] ❌ Response Status: ${error.response.status}`);
+                                console.error(`[Gemini Tool getSucursales] ❌ Response Body:`, JSON.stringify(error.response.data));
+                            }
                             functionResult = {
                                 status: "error",
                                 message: "No se pudieron obtener las sucursales en este momento."
