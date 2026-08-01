@@ -276,33 +276,60 @@ class WhatsappService {
             return;
         }
 
-        // --- INTEGRACIÓN GEMINI ---
+interface UserMessageBatch {
+    messages: string[];
+    timer: NodeJS.Timeout;
+}
+const userMessageBatches = new Map<string, UserMessageBatch>();
+
+        // --- INTEGRACIÓN GEMINI CON BATCHING Y DEBOUNCE (4.5 SEGUNDOS) ---
         if (messageText.trim()) {
-            try {
-                // Delay de 5 segundos para simular respuesta humana y estabilizar conexión
-                await new Promise(resolve => setTimeout(resolve, 5000));
+            const cleanText = messageText.trim();
+            const existingBatch = userMessageBatches.get(senderJid);
 
-                const history = currentState?.history || [];
-                const aiResponse = await geminiService.chat(messageText, history);
-                
-                userStates.set(senderJid, {
-                    step: 'CHATTING',
-                    history: aiResponse.newHistory
+            if (existingBatch) {
+                clearTimeout(existingBatch.timer);
+                existingBatch.messages.push(cleanText);
+                console.log(`[WSP Batch] Mensaje adicional de ${senderNumber} agrupado (Total ráfaga: ${existingBatch.messages.length})`);
+            } else {
+                userMessageBatches.set(senderJid, {
+                    messages: [cleanText],
+                    timer: setTimeout(() => {}, 0)
                 });
-
-                if (aiResponse.text) {
-                    await this.sendMessage(senderJid, aiResponse.text);
-                }
-            } catch (err: any) {
-                console.error('[WSP] Error calling Gemini:', err.message);
-                
-                // Si es un error de sobrecarga (503), intentamos dar un mensaje más amigable
-                if (err.message?.includes('503') || err.message?.includes('high demand')) {
-                    await this.sendMessage(senderJid, "Estoy recibiendo muchas consultas en este momento. ¿Podrías intentar escribirme de nuevo en unos segundos?");
-                } else {
-                    await this.sendMessage(senderJid, "Lo siento, tuve un problema al procesar tu mensaje. ¿Podrías repetirlo?");
-                }
             }
+
+            const currentBatch = userMessageBatches.get(senderJid)!;
+
+            // Esperar 4.5 segundos tras el último mensaje de la ráfaga para responder en 1 sola llamada
+            currentBatch.timer = setTimeout(async () => {
+                const combinedText = currentBatch.messages.join("\n");
+                userMessageBatches.delete(senderJid);
+
+                console.log(`[WSP Batch] Procesando ráfaga combinada para ${senderNumber} (${currentBatch.messages.length} mensaje/s):\n"${combinedText}"`);
+
+                try {
+                    const latestState = userStates.get(senderJid);
+                    const history = latestState?.history || [];
+                    
+                    const aiResponse = await geminiService.chat(combinedText, history);
+                    
+                    userStates.set(senderJid, {
+                        step: 'CHATTING',
+                        history: aiResponse.newHistory
+                    });
+
+                    if (aiResponse.text && aiResponse.text.trim()) {
+                        await this.sendMessage(senderJid, aiResponse.text.trim());
+                    }
+                } catch (err: any) {
+                    console.error('[WSP] Error calling Gemini:', err.message);
+                    if (err.message?.includes('503') || err.message?.includes('high demand')) {
+                        await this.sendMessage(senderJid, "Estoy recibiendo muchas consultas en este momento. ¿Podrías intentar escribirme de nuevo en unos segundos?");
+                    } else {
+                        await this.sendMessage(senderJid, "Lo siento, tuve un problema al procesar tu mensaje. ¿Podrías repetirlo?");
+                    }
+                }
+            }, 4500);
         }
     }
 
