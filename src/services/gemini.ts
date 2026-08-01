@@ -297,17 +297,20 @@ export class GeminiService {
 
                         console.log(`[Gemini Tool getSucursales] --------------------------------------------------`);
                         console.log(`[Gemini Tool getSucursales] Locality Query: "${args.locality}"`);
+                        console.log(`[Gemini Tool getSucursales] API Key Header: ${apiKey ? (apiKey.substring(0, 8) + '...') : '⚠️ MISSING / EMPTY (Define BACKEND_API_KEY in .env)'}`);
 
                         try {
                             let res: any;
+                            const headers = apiKey ? { 'x-api-key': apiKey } : {};
                             try {
                                 res = await axios.get(`${backendUrl}/api/v1/sucursales/public/list`, {
-                                    headers: { 'x-api-key': apiKey },
+                                    headers,
                                     timeout: 10000
                                 });
-                            } catch (e) {
+                            } catch (e: any) {
+                                console.log(`[Gemini Tool getSucursales] /public/list failed (${e.message}), trying /all fallback...`);
                                 res = await axios.get(`${backendUrl}/api/v1/sucursales/all`, {
-                                    headers: { 'x-api-key': apiKey },
+                                    headers,
                                     timeout: 10000
                                 });
                             }
