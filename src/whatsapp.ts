@@ -246,33 +246,9 @@ class WhatsappService {
         const isMedia = !!(msg.message?.imageMessage || msg.message?.documentMessage);
         const currentState = userStates.get(senderJid);
 
-        // 2. Lógica del Chatbot
+        // 2. Lógica del Chatbot (Desactivada la ingesta de documentos/fotos por el momento)
         if (isMedia) {
-            // Recibió una imagen o documento
-            userStates.set(senderJid, { 
-                step: 'AWAITING_ACTION', 
-                mediaMessage: msg,
-                history: currentState?.history || []
-            });
-            await this.sendMessage(senderJid, "He recibido un archivo. ¿Deseas guardarlo en la Gestión Documental?\n\n*Responde con el número 1 para confirmar.*");
-            return;
-        }
-
-        if (currentState?.step === 'AWAITING_ACTION' && messageText.trim() === '1') {
-            await this.sendMessage(senderJid, "⏳ Procesando archivo, por favor espera...");
-            try {
-                const success = await this.processAndUploadMedia(currentState.mediaMessage);
-                if (success) {
-                    await this.sendMessage(senderJid, "✅ ¡Documento guardado exitosamente en la Gestión Documental!");
-                } else {
-                    await this.sendMessage(senderJid, "❌ Hubo un error al procesar el documento. Intenta nuevamente.");
-                }
-            } catch (err) {
-                console.error('Error in chatbot flow:', err);
-                await this.sendMessage(senderJid, "❌ Error crítico al subir el archivo.");
-            } finally {
-                userStates.delete(senderJid);
-            }
+            await this.sendMessage(senderJid, "Por el momento no puedo procesar fotos ni documentos 📷. ¿Podrías escribirme el número de DNI en texto por acá así te lo consulto de una? 🚀");
             return;
         }
 
