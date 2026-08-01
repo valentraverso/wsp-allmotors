@@ -2,8 +2,41 @@ import { GoogleGenAI, Tool, Type } from "@google/genai";
 import dotenv from "dotenv";
 import axios from "axios";
 import path from "path";
+import fs from "fs";
 
-dotenv.config({ path: path.join(__dirname, "../../.env") });
+dotenv.config({ path: path.join(__dirname, "../../.env"), override: true });
+
+function getApiKey(): string {
+    dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+    dotenv.config({ path: path.join(__dirname, '../../.env'), override: true });
+
+    let key = (process.env.BACKEND_API_KEY || process.env.SYSTEM_ADMIN_API_KEY || process.env.EXTERNAL_SERVICE_API_KEY || "").trim();
+
+    if (!key) {
+        try {
+            const envPaths = [
+                path.resolve(process.cwd(), '.env'),
+                path.join(__dirname, '../../.env'),
+                '/var/www/wsp/.env'
+            ];
+            for (const envPath of envPaths) {
+                if (fs.existsSync(envPath)) {
+                    const content = fs.readFileSync(envPath, 'utf8');
+                    const match = content.match(/BACKEND_API_KEY\s*=\s*["']?([^"'\r\n]+)["']?/);
+                    if (match && match[1]) {
+                        key = match[1].trim();
+                        process.env.BACKEND_API_KEY = key;
+                        break;
+                    }
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    return key;
+}
 
 const client = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY || "",
@@ -123,14 +156,6 @@ const tools: Tool[] = [
         ]
     }
 ];
-
-function getApiKey(): string {
-    if (!process.env.BACKEND_API_KEY) {
-        dotenv.config({ path: path.resolve(process.cwd(), '.env') });
-        dotenv.config({ path: path.join(__dirname, '../../.env') });
-    }
-    return (process.env.BACKEND_API_KEY || process.env.SYSTEM_ADMIN_API_KEY || process.env.EXTERNAL_SERVICE_API_KEY || "").trim();
-}
 
 export class GeminiService {
     async chat(message: string, history: any[] = []) {
