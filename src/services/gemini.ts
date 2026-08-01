@@ -162,11 +162,13 @@ export class GeminiService {
                         console.log("[Gemini] Service appointment request:", args);
                         functionResult = { status: "success", message: "Turno de taller registrado internamente de manera exitosa (Mock)" };
                     } else if (name === "checkRepuestoStock") {
-                        console.log("[Gemini] Checking repuesto stock:", args);
+                        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                        const apiKey = process.env.BACKEND_API_KEY || "";
+                        
+                        console.log(`[Gemini Tool checkRepuestoStock] Searching: "${args.repuestoName || args.code}" | Locality: ${args.locality}`);
+                        console.log(`[Gemini Tool checkRepuestoStock] API Key Header: ${apiKey ? (apiKey.substring(0, 8) + '...') : '⚠️ MISSING / EMPTY'}`);
+
                         try {
-                            const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
-                            const apiKey = process.env.BACKEND_API_KEY || "";
-                            
                             const res = await axios.get(`${backendUrl}/api/v1/repuestos/stock/search`, {
                                 params: { 
                                     query: args.repuestoName || "", 
@@ -175,9 +177,13 @@ export class GeminiService {
                                 },
                                 headers: { 'x-api-key': apiKey }
                             });
+                            console.log(`[Gemini Tool checkRepuestoStock] ✅ Success ${res.status}:`, JSON.stringify(res.data));
                             functionResult = res.data;
                         } catch (error: any) {
-                            console.log("[Gemini] Repuesto stock endpoint fallback for:", args);
+                            console.error(`[Gemini Tool checkRepuestoStock] ❌ HTTP ERROR: ${error.message}`);
+                            if (error.response) {
+                                console.error(`[Gemini Tool checkRepuestoStock] ❌ Status: ${error.response.status} Data:`, JSON.stringify(error.response.data));
+                            }
                             functionResult = {
                                 status: "success",
                                 found: false,
@@ -188,16 +194,19 @@ export class GeminiService {
                             };
                         }
                     } else if (name === "checkFinancing") {
+                        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                        const apiKey = process.env.BACKEND_API_KEY || "";
+                        
+                        const dniClean = (args.dni || "").toString().replace(/\D/g, "");
+                        const rawGender = (args.gender || "M").toString().toUpperCase();
+                        const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
+
+                        console.log(`[Gemini Tool checkFinancing] --------------------------------------------------`);
+                        console.log(`[Gemini Tool checkFinancing] DNI: ${dniClean} | Género: ${genderClean}`);
+                        console.log(`[Gemini Tool checkFinancing] Target Endpoint: ${backendUrl}/api/v1/finance/preapproval-financials`);
+                        console.log(`[Gemini Tool checkFinancing] API Key Header: ${apiKey ? (apiKey.substring(0, 8) + '...') : '⚠️ MISSING / EMPTY (Define BACKEND_API_KEY in .env)'}`);
+
                         try {
-                            const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
-                            const apiKey = process.env.BACKEND_API_KEY || "";
-                            
-                            const dniClean = (args.dni || "").toString().replace(/\D/g, "");
-                            const rawGender = (args.gender || "M").toString().toUpperCase();
-                            const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
-
-                            console.log(`[Gemini] Consultando preaprobación financiera para DNI: ${dniClean}, Género: ${genderClean}`);
-
                             const res = await axios.post(`${backendUrl}/api/v1/finance/preapproval-financials`, {
                                 dni: dniClean,
                                 gender: genderClean,
@@ -207,11 +216,19 @@ export class GeminiService {
                                 timeout: 25000
                             });
 
+                            console.log(`[Gemini Tool checkFinancing] ✅ HTTP Success ${res.status}:`, JSON.stringify(res.data));
                             functionResult = res.data;
                         } catch (error: any) {
-                            console.error("[Gemini] Error al consultar backend de financieras:", error.message);
+                            console.error(`[Gemini Tool checkFinancing] ❌ HTTP ERROR: ${error.message}`);
+                            if (error.response) {
+                                console.error(`[Gemini Tool checkFinancing] ❌ Response Status: ${error.response.status}`);
+                                console.error(`[Gemini Tool checkFinancing] ❌ Response Body:`, JSON.stringify(error.response.data));
+                            } else if (error.request) {
+                                console.error(`[Gemini Tool checkFinancing] ❌ No response received from server. Code: ${error.code}`);
+                            }
                             functionResult = { error: "No se pudo consultar la preaprobación crediticia en este momento." };
                         }
+                        console.log(`[Gemini Tool checkFinancing] --------------------------------------------------`);
                     }
 
                     toolResults.push({
