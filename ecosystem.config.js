@@ -13,7 +13,8 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 4001,
         WSP_MODE: "internal",
-        AUTH_DIR: "auth_info_baileys_internal"
+        AUTH_DIR: "auth_info_baileys_internal",
+        WSP_AUTH_CODE: process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026"
       },
     },
     {
@@ -29,7 +30,8 @@ module.exports = {
         NODE_ENV: "production",
         PORT: 4002,
         WSP_MODE: "bot",
-        AUTH_DIR: "auth_info_baileys_bot"
+        AUTH_DIR: "auth_info_baileys_bot",
+        WSP_AUTH_CODE: process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026"
       },
     },
   ],
