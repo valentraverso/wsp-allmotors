@@ -190,20 +190,30 @@ export class GeminiService {
                     } else if (name === "checkFinancing") {
                         try {
                             const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
-                            const wspAuthCode = process.env.WSP_AUTH_CODE;
+                            const wspAuthCode = process.env.WSP_AUTH_CODE || "allmotors_secret_code_2026";
                             
+                            const dniClean = (args.dni || "").toString().replace(/\D/g, "");
+                            const rawGender = (args.gender || "M").toString().toUpperCase();
+                            const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
+
+                            console.log(`[Gemini] Consultando preaprobación financiera para DNI: ${dniClean}, Género: ${genderClean}`);
+
                             const res = await axios.post(`${backendUrl}/api/v1/finance/preapproval-financials`, {
-                                dni: args.dni,
-                                gender: args.gender,
+                                dni: dniClean,
+                                gender: genderClean,
                                 cellphone: ""
                             }, {
-                                headers: { 'x-wsp-auth-code': wspAuthCode }
+                                headers: { 
+                                    'x-api-key': wspAuthCode,
+                                    'x-wsp-auth-code': wspAuthCode 
+                                },
+                                timeout: 25000
                             });
 
                             functionResult = res.data;
                         } catch (error: any) {
-                            console.error("[Gemini] Error calling finance backend:", error.message);
-                            functionResult = { error: "No se pudo consultar el crédito en este momento." };
+                            console.error("[Gemini] Error al consultar backend de financieras:", error.message);
+                            functionResult = { error: "No se pudo consultar la preaprobación crediticia en este momento." };
                         }
                     }
 

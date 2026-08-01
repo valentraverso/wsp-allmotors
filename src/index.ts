@@ -66,6 +66,16 @@ app.get('/status', (req, res) => {
     res.json({ status: whatsappService.sock?.user ? 'connected' : 'disconnected' });
 });
 
+// Endpoint para desvincular/logout de WhatsApp
+app.post('/logout', authMiddleware, async (req, res) => {
+    try {
+        await whatsappService.logout();
+        res.status(200).json({ status: 'success', message: 'WhatsApp session logged out and cleared.' });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`WSP Microservice running on port ${PORT}`);
     whatsappService.init();

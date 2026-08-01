@@ -437,6 +437,41 @@ class WhatsappService {
     getQR() {
         return this.qr;
     }
+
+    async logout(): Promise<void> {
+        const authFolder = process.env.AUTH_DIR || (process.env.WSP_MODE === 'bot' ? 'auth_info_baileys_bot' : 'auth_info_baileys_internal');
+        console.log(`[WSP ${process.env.WSP_MODE || 'service'}] Logging out and clearing credentials folder (${authFolder})...`);
+        
+        if (this.sock) {
+            try {
+                this.sock.ev.removeAllListeners('connection.update');
+                this.sock.ev.removeAllListeners('creds.update');
+                this.sock.ev.removeAllListeners('messages.upsert');
+                try {
+                    await this.sock.logout();
+                } catch {
+                    this.sock.end(undefined);
+                }
+            } catch (e) {
+                console.log('Error closing socket on logout:', e);
+            }
+            this.sock = null;
+        }
+
+        try {
+            if (fs.existsSync(authFolder)) {
+                fs.rmSync(authFolder, { recursive: true, force: true });
+            }
+        } catch (err) {
+            console.error('Error clearing credentials folder on logout:', err);
+        }
+
+        this.qr = null;
+        this.isInitializing = false;
+
+        // Reiniciar socket para generar nuevo QR de inmediato
+        setTimeout(() => this.init(), 1000);
+    }
 }
 
 export default new WhatsappService();
