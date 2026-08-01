@@ -74,8 +74,11 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
      d) **REQUERIR CÓDIGO SI NO SE ENCUENTRA**: Si la herramienta 'checkRepuestoStock' devuelve que no lo encontró (found: false), **PÍDELE AL CLIENTE EN UNA SOLA ORACIÓN QUE TE PASE EL CÓDIGO DE REPUESTO** (código de pieza) para hacer una búsqueda exacta en el sistema (ej: "No lo encontré por nombre en el sistema de stock, ¿tendrías el código de repuesto a mano para buscarlo de forma exacta? 🔍").
      e) Si el cliente te da el código de repuesto, volvé a llamar a 'checkRepuestoStock' usando el parámetro 'code'.
 
-2. **LOCALIDADES DE COBERTURA**:
-   - Identifica siempre la localidad/ciudad del cliente. Recuerda que las sucursales internamente siguen la regla <nombre de la ciudad>_<identificador> o sólo <nombre de la ciudad>.
+2. **LOCALIDADES Y SUCURSALES DE ATENCIÓN (CONSULTA DINÁMICA)** 📍:
+   - Cuando el cliente te diga de qué localidad/ciudad es (o te pregunte dónde quedan nuestras sucursales o dónde estamos ubicados):
+     a) Usá SIEMPRE la herramienta 'getSucursales' enviando la localidad o provincia (ej: "Santa Fe", "La Paz", "Concordia", "Santa Elena").
+     b) Con la lista devuelta de la base de datos, responde en 1 o 2 oraciones ultraconcisas indicando con emojis 📍 **las direcciones exactas** de las sucursales en esa localidad.
+     c) Ejemplo: Si indica que es de "Santa Fe", enumera con viñetas las direcciones de las sucursales de Santa Fe que devuelve el sistema (ej. "📍 En Santa Fe nos encontrás en: ..."). Por ejemplo, si hay 4 sucursales en Santa Fe, envíale las 4 direcciones exactas.
 
 3. **FINANCIACIÓN Y CONSULTA DE CRÉDITO POR DNI** 💸:
    a) **Pedir Datos**: Para consultar crédito, solicitá DNI y Género (M/F) de forma sutil y muy breve.
@@ -160,6 +163,17 @@ const tools: Tool[] = [
                         repuestoName: { type: Type.STRING, description: "Nombre o descripción del repuesto (ej: bulbo de embrague XR 150)" },
                         code: { type: Type.STRING, description: "Código o número de pieza del repuesto si fue proporcionado por el cliente" },
                         locality: { type: Type.STRING, description: "Ciudad o localidad del cliente (ej: Santa Fe, La Paz, Concordia, Santa Elena)" }
+                    },
+                    required: ["locality"]
+                }
+            },
+            {
+                name: "getSucursales",
+                description: "Consulta las sucursales oficiales de All Motors cargadas en la Intranet (nombre, dirección, ciudad, provincia, teléfono) según la localidad indicada por el cliente.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        locality: { type: Type.STRING, description: "Ciudad, localidad o provincia indicada por el cliente (ej: Santa Fe, La Paz, Concordia, Santa Elena)" }
                     },
                     required: ["locality"]
                 }
@@ -273,6 +287,58 @@ export class GeminiService {
                             functionResult = { error: "No se pudo consultar la preaprobación crediticia en este momento." };
                         }
                         console.log(`[Gemini Tool checkFinancing] --------------------------------------------------`);
+                    } else if (name === "getSucursales") {
+                        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                        const apiKey = getApiKey();
+
+                        console.log(`[Gemini Tool getSucursales] --------------------------------------------------`);
+                        console.log(`[Gemini Tool getSucursales] Locality Query: "${args.locality}"`);
+
+                        try {
+                            const res = await axios.get(`${backendUrl}/api/v1/sucursal/public/list`, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 10000
+                            });
+
+                            const allSucursales: any[] = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : []);
+                            const queryClean = (args.locality || "").toString().toLowerCase().trim();
+
+                            const filtered = allSucursales.filter((s: any) => {
+                                const ciudad = (s.ciudad || "").toLowerCase();
+                                const provincia = (s.provincia || "").toLowerCase();
+                                const nombre = (s.nombre || "").toLowerCase();
+                                const direccion = (s.direccion || "").toLowerCase();
+
+                                return ciudad.includes(queryClean) || queryClean.includes(ciudad) ||
+                                       provincia.includes(queryClean) || queryClean.includes(provincia) ||
+                                       nombre.includes(queryClean) || queryClean.includes(nombre) ||
+                                       direccion.includes(queryClean);
+                            });
+
+                            const listToReturn = filtered.length > 0 ? filtered : allSucursales;
+                            const resultList = listToReturn.map((s: any) => ({
+                                nombre: s.nombre,
+                                direccion: s.direccion,
+                                ciudad: s.ciudad,
+                                provincia: s.provincia,
+                                telefono: s.telefono
+                            }));
+
+                            console.log(`[Gemini Tool getSucursales] ✅ Success! Returned ${resultList.length} sucursales.`);
+                            functionResult = {
+                                status: "success",
+                                locality: args.locality,
+                                count: resultList.length,
+                                sucursales: resultList
+                            };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool getSucursales] ❌ ERROR: ${error.message}`);
+                            functionResult = {
+                                status: "error",
+                                message: "No se pudieron obtener las sucursales en este momento."
+                            };
+                        }
+                        console.log(`[Gemini Tool getSucursales] --------------------------------------------------`);
                     }
 
                     toolResults.push({
