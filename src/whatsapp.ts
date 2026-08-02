@@ -298,12 +298,9 @@ class WhatsappService {
                         await this.sendMessage(senderJid, aiResponse.text.trim());
                     }
                 } catch (err: any) {
-                    console.error('[WSP] Error calling Gemini:', err.message);
-                    if (err.message?.includes('503') || err.message?.includes('high demand')) {
-                        await this.sendMessage(senderJid, "Estoy recibiendo muchas consultas en este momento. ¿Podrías intentar escribirme de nuevo en unos segundos?");
-                    } else {
-                        await this.sendMessage(senderJid, "Lo siento, tuve un problema al procesar tu mensaje. ¿Podrías repetirlo?");
-                    }
+                    console.error('[WSP Error Handler] Error calling Gemini after retries:', err.message);
+                    // REGLA CRÍTICA: NO ENVIAR MENSAJES DE ERROR AL CLIENTE (ej. "escribinos más tarde").
+                    // Se registra silenciosamente en logs. El cliente no recibe respuestas de fallo.
                 }
             }, 30000);
         }

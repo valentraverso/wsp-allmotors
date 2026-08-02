@@ -242,19 +242,51 @@ const tools: Tool[] = [
 ];
 
 export class GeminiService {
+    private async generateContentWithRetry(contents: any[], attempts = 4): Promise<any> {
+        const modelsToTry = ["gemini-3.6-flash", "gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-flash"];
+        const delays = [3000, 5000, 8000, 12000];
+
+        let lastError: any;
+        for (let i = 0; i < attempts; i++) {
+            const currentModel = modelsToTry[i] || "gemini-3.6-flash";
+            try {
+                if (i > 0) {
+                    console.log(`[Gemini Retry] Intento ${i + 1}/${attempts} usando modelo '${currentModel}'...`);
+                }
+                const result = await client.models.generateContent({
+                    model: currentModel,
+                    contents: contents,
+                    config: {
+                        systemInstruction: SYSTEM_PROMPT,
+                        tools: tools,
+                    }
+                });
+                return result;
+            } catch (err: any) {
+                lastError = err;
+                const errStr = err.message || JSON.stringify(err);
+                const isUnavailable = errStr.includes("503") || errStr.includes("UNAVAILABLE") || errStr.includes("high demand") || errStr.includes("429");
+                
+                console.warn(`[Gemini Retry Warning] Intento ${i + 1}/${attempts} falló (${currentModel}): ${err.message}`);
+                
+                if (i < attempts - 1 && isUnavailable) {
+                    await new Promise(resolve => setTimeout(resolve, delays[i]));
+                } else if (!isUnavailable) {
+                    throw err;
+                }
+            }
+        }
+        throw lastError;
+    }
+
     async chat(message: string, history: any[] = [], senderNumber: string = "") {
         try {
-            const result = await client.models.generateContent({
-                model: "gemini-3.6-flash",
-                contents: [
-                    ...history,
-                    { role: "user", parts: [{ text: message }] }
-                ],
-                config: {
-                    systemInstruction: SYSTEM_PROMPT,
-                    tools: tools,
-                }
-            });
+            const contentsPayload = [
+                ...history,
+                { role: "user", parts: [{ text: message }] }
+            ];
+
+            const result = await this.generateContentWithRetry(contentsPayload);
 
             const candidate = result.candidates?.[0];
             let content = candidate?.content?.parts?.[0]?.text || "";
