@@ -171,7 +171,8 @@ const tools: Tool[] = [
                         },
                         city: { type: Type.STRING, description: "Ciudad o localidad del cliente" },
                         state: { type: Type.STRING, description: "Provincia del cliente (deducida o preguntada si la ciudad aplica a varias provincias)" },
-                        interest: { type: Type.STRING, description: "Marca, modelo, cilindrada o estilo de moto en el que está interesado el cliente" }
+                        interest: { type: Type.STRING, description: "Marca, modelo, cilindrada o estilo de moto en el que está interesado el cliente" },
+                        dni: { type: Type.STRING, description: "Número de DNI del cliente o del familiar evaluado (si se solicitó durante la charla por financiación DNI/Recibo)" }
                     },
                     required: ["firstName", "lastName", "paymentMethod", "city", "state", "interest"]
                 }
@@ -274,7 +275,8 @@ export class GeminiService {
                             paymentMethod: args.paymentMethod,
                             city: args.city,
                             state: args.state,
-                            interest: args.interest
+                            interest: args.interest,
+                            dni: args.dni || ""
                         };
 
                         console.log(`[Gemini Tool createLead] Sending Lead to Zoho CRM via Backend:`, JSON.stringify(leadPayload));
