@@ -225,14 +225,11 @@ function buildSystemPrompt(): string {
    - **ESTADO ACTUAL DEL CONCESIONARIO EN TIEMPO REAL**:
      - Día y Hora Actual (Argentina): ${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs.
      - Estado Comercial: ${hoursInfo.isOpen ? "🟢 ABIERTO (En horario de atención público)" : "🔴 CERRADO (Fuera de horario de atención)"}
-   - **INSTRUCCIÓN OBLIGATORIA SEGÚN ESTADO DE ATENCIÓN**:
-     ${hoursInfo.isOpen 
-       ? `- Como el concesionario está ABIERTO en este momento, cuando registres al cliente o te consulte cuándo se lo contacta, indicale que en breve / hoy un asesor le enviará la información.` 
-       : `- **🔴 ATENCIÓN: EL CONCESIONARIO ESTÁ CERRADO EN ESTE MOMENTO**:
-          - Debes responder amablemente en 1 o 2 oraciones avisando que en este momento el concesionario se encuentra cerrado.
-          - Informale que le enviaremos la información, fotos o catálogo **${hoursInfo.reopeningText}** apenas volvamos a abrir.
-          - Si el cliente consulta nuestros horarios, mencionale que atendemos Lunes a Viernes de 08:30 a 12:30hs y de 16:30 a 20:30hs, y Sábados de 09:00 a 13:00hs.`
-     }
+   - **MOMENTO EXACTO PARA MENCIONAR QUE EL CONCESIONARIO ESTÁ CERRADO (REGLA ESTRICTA)** 🔴:
+     - **NO MENCIONES QUE ESTAMOS CERRADOS MIENTRAS ESTÉS INTERACTUANDO, RESPONDIENDO PREGUNTAS O RECOLECTANDO LOS DATOS DEL CLIENTE**.
+     - **MENCIONÁ QUE EL CONCESIONARIO ESTÁ CERRADO ÚNICAMENTE EN ESTOS 2 CASOS**:
+       1. **AL FINALIZAR EL REGISTRO COMPLETO**: Al terminar de pedir todos los datos del cliente (tras ejecutar 'createLead' con éxito con Nombre y Apellido completos), avísale que por estar cerrado en este momento, nuestro equipo le estará enviando las fotos, precios o información **${hoursInfo.reopeningText}** apenas volvamos a abrir.
+       2. **SI EL CLIENTE PREGUNTA EXPLÍCITAMENTE CUÁNDO SE LO CONTACTA O SI ATIENDEN AHORA**: Si pregunta "¿cuándo me contactan?", "¿cuándo me mandan?", "¿están abiertos?", "¿atienden ahora?" o consulta nuestros horarios.
 `;
 
     return SYSTEM_PROMPT_TEMPLATE + "\n" + scheduleBlock;
