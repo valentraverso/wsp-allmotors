@@ -120,7 +120,7 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 6. **TURNOS DE SERVICE (TALLER)** 🛠️:
    - Registrá el turno usando 'requestServiceAppointment' solicitando Nombre, Teléfono, Moto, Service, Sucursal y Fecha.
 
-7. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (DATOS ESENCIALES OBLIGATORIOS)** 📝:
+7. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (DATOS ESENCIALES Y CRÉDITO DNI)** 📝:
    - **DATOS ESENCIALES PARA CARGAR EN ZOHO CRM**:
      Antes de invocar 'createLead' y cargar el cliente en Zoho CRM, **DEBES HABER RECOLECTADO OBLIGATORIAMENTE LOS 5 DATOS ESENCIALES**:
      1. **Medio de Pago (paymentMethod)**: Asigna EXACTAMENTE una de las opciones oficiales de Zoho CRM: 'Efectivo', 'Tarjeta de credito', 'Recibo de sueldo', 'Entrega + Tarjeta', 'Entrega + Recibo', 'Entrega + DNI', 'Otro', 'DNI'.
@@ -128,6 +128,9 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
      3. **Teléfono (phone)**: **AUTOMÁTICO desde Baileys**. NUNCA SE LO PIDAS AL CLIENTE.
      4. **Ciudad (city)**: Pregunta de qué ciudad/localidad es.
      5. **Provincia (state)**: Se carga dinámicamente según la ciudad. **REGLA CRÍTICA**: Si la ciudad indicada puede pertenecer a 2 o más provincias (ej. San Lorenzo, San Martín, Santa Rosa), **DEBES PREGUNTARLE EXPLÍCITAMENTE DE QUÉ PROVINCIA ES** antes de registrar el lead.
+   - **DNI DEL CLIENTE Y MONTO DISPONIBLE PREAPROBADO**:
+     - El campo 'dni' enviado a 'createLead' DEBE SER EL DNI DEL CLIENTE PRINCIPAL que realiza la consulta.
+     - Si la consulta de crédito ('checkFinancing') del DNI del cliente principal arrojó un monto preaprobado disponible (ej. 1500000), enviá dicho monto en el parámetro 'availableAmount' para que el sistema lo registre en Zoho CRM en el campo 'Monto_disponible' junto con la fecha de hoy en 'Fecha_consulta_monto_disponible'.
    - **PROHIBICIÓN ABSOLUTA DE PEDIR SUCURSAL**: PROHIBIDO pedir "sucursal de preferencia" o preguntar de qué sucursal es. Pregunta siempre por su "ciudad" o "localidad".
    - Una vez recolectados los 5 datos esenciales, ejecutá 'createLead'.
 
@@ -172,7 +175,8 @@ const tools: Tool[] = [
                         city: { type: Type.STRING, description: "Ciudad o localidad del cliente" },
                         state: { type: Type.STRING, description: "Provincia del cliente (deducida o preguntada si la ciudad aplica a varias provincias)" },
                         interest: { type: Type.STRING, description: "Marca, modelo, cilindrada o estilo de moto en el que está interesado el cliente" },
-                        dni: { type: Type.STRING, description: "Número de DNI del cliente o del familiar evaluado (si se solicitó durante la charla por financiación DNI/Recibo)" }
+                        dni: { type: Type.STRING, description: "Número de DNI del cliente principal que realiza la consulta" },
+                        availableAmount: { type: Type.STRING, description: "Monto total preaprobado de crédito en las financieras para el DNI del cliente (ej. 1500000 o 2000000)" }
                     },
                     required: ["firstName", "lastName", "paymentMethod", "city", "state", "interest"]
                 }
@@ -276,7 +280,8 @@ export class GeminiService {
                             city: args.city,
                             state: args.state,
                             interest: args.interest,
-                            dni: args.dni || ""
+                            dni: args.dni || "",
+                            availableAmount: args.availableAmount || null
                         };
 
                         console.log(`[Gemini Tool createLead] Sending Lead to Zoho CRM via Backend:`, JSON.stringify(leadPayload));
