@@ -27,6 +27,12 @@ const userStates = new Map<string, { step: string, mediaMessage?: any, history: 
 const processedMessages = new Set<string>();
 const groupCache = new Map<string, any>();
 
+interface UserMessageBatch {
+    messages: string[];
+    timer: NodeJS.Timeout;
+}
+const userMessageBatches = new Map<string, UserMessageBatch>();
+
 class WhatsappService {
     public sock: WASocket | null = null;
     private qr: string | null = null;
@@ -251,12 +257,6 @@ class WhatsappService {
             await this.sendMessage(senderJid, "Por el momento no puedo procesar fotos ni documentos 📷. ¿Podrías escribirme el número de DNI en texto por acá así te lo consulto de una? 🚀");
             return;
         }
-
-interface UserMessageBatch {
-    messages: string[];
-    timer: NodeJS.Timeout;
-}
-const userMessageBatches = new Map<string, UserMessageBatch>();
 
         // --- INTEGRACIÓN GEMINI CON BATCHING Y DEBOUNCE (30 SEGUNDOS) ---
         if (messageText.trim()) {
