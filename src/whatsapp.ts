@@ -258,7 +258,7 @@ interface UserMessageBatch {
 }
 const userMessageBatches = new Map<string, UserMessageBatch>();
 
-        // --- INTEGRACIÓN GEMINI CON BATCHING Y DEBOUNCE (4.5 SEGUNDOS) ---
+        // --- INTEGRACIÓN GEMINI CON BATCHING Y DEBOUNCE (30 SEGUNDOS) ---
         if (messageText.trim()) {
             const cleanText = messageText.trim();
             const existingBatch = userMessageBatches.get(senderJid);
@@ -276,7 +276,7 @@ const userMessageBatches = new Map<string, UserMessageBatch>();
 
             const currentBatch = userMessageBatches.get(senderJid)!;
 
-            // Esperar 4.5 segundos tras el último mensaje de la ráfaga para responder en 1 sola llamada
+            // Esperar 30 segundos tras el último mensaje de la ráfaga para responder en 1 sola llamada
             currentBatch.timer = setTimeout(async () => {
                 const combinedText = currentBatch.messages.join("\n");
                 userMessageBatches.delete(senderJid);
@@ -305,7 +305,7 @@ const userMessageBatches = new Map<string, UserMessageBatch>();
                         await this.sendMessage(senderJid, "Lo siento, tuve un problema al procesar tu mensaje. ¿Podrías repetirlo?");
                     }
                 }
-            }, 4500);
+            }, 30000);
         }
     }
 
