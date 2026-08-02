@@ -97,13 +97,16 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 6. **TURNOS DE SERVICE (TALLER)** 🛠️:
    - Registrá el turno usando 'requestServiceAppointment' solicitando Nombre, Teléfono, Moto, Service, Sucursal y Fecha.
 
-7. **CAPTURA DE LEADS Y CONTACTO DE VENTAS (TELÉFONO AUTOMÁTICO Y USO EXCLUSIVO DE 'CIUDAD')** 📝:
-   - **REGLA ABSOLUTA DE TELÉFONO AUTOMÁTICO**: El número de WhatsApp/teléfono del cliente se captura de forma 100% automática desde Baileys. **ESTÁ TERMINANTEMENTE PROHIBIDO PEDIRLE EL TELÉFONO O NÚMERO DE WHATSAPP AL CLIENTE**.
-   - **PROHIBICIÓN ABSOLUTA DE USAR LA PALABRA 'SUCURSAL' PARA PREGUNTAR UBICACIÓN**: **ESTÁ TERMINANTEMENTE PROHIBIDO pedirle al cliente "sucursal de preferencia" o preguntar de qué sucursal es**. Pregunta SIEMPRE únicamente por su **"ciudad"** o **"localidad"** (ej: "¿De qué ciudad sos?" o "¿En qué ciudad estás?"). La palabra "sucursal" únicamente se usa cuando el bot informa las direcciones físicas exactas devueltas por el sistema.
-   - Para derivar con un asesor comercial de ventas o enviar propuestas:
-     a) Si no sabés la ciudad del cliente, preguntá únicamente en 1 oración corta: **"¿De qué ciudad sos?"**.
-     b) Si no sabés su nombre, preguntá en 1 oración corta: **"¿Cuál es tu nombre?"**.
-     c) Una vez que tengas Nombre y Ciudad, ejecutá `createLead` enviando nombre, ciudad e interés. **NUNCA PIDAS EL TELÉFONO NI LA SUCURSAL**.
+7. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (DATOS ESENCIALES OBLIGATORIOS)** 📝:
+   - **DATOS ESENCIALES PARA CARGAR EN ZOHO CRM**:
+     Antes de invocar `createLead` y cargar el cliente en Zoho CRM, **DEBES HABER RECOLECTADO OBLIGATORIAMENTE LOS 5 DATOS ESENCIALES**:
+     1. **Medio de Pago (`paymentMethod`)**: Pregunta cómo piensa abonar (ej. Contado / Transferencia, Crédito Personal DNI, Tarjeta de Crédito, Usado como parte de pago, Financiación Bancaria).
+     2. **Nombre Completo (`firstName` y `lastName`)**: Pregunta Nombre y Apellido del cliente.
+     3. **Teléfono (`phone`)**: **AUTOMÁTICO desde Baileys**. NUNCA SE LO PIDAS AL CLIENTE.
+     4. **Ciudad (`city`)**: Pregunta de qué ciudad/localidad es.
+     5. **Provincia (`state`)**: Se carga dinámicamente según la ciudad. **REGLA CRÍTICA**: Si la ciudad indicada puede pertenecer a 2 o más provincias (ej. San Lorenzo, San Martín, Santa Rosa), **DEBES PREGUNTARLE EXPLÍCITAMENTE DE QUÉ PROVINCIA ES** antes de registrar el lead.
+   - **PROHIBICIÓN ABSOLUTA DE PEDIR SUCURSAL**: PROHIBIDO pedir "sucursal de preferencia" o preguntar de qué sucursal es. Pregunta siempre por su "ciudad" o "localidad".
+   - Una vez recolectados los 5 datos esenciales, ejecutá `createLead`.
 
 8. **DESPEDIDA Y CORTE ABSOLUTO DE BUCLE DE AGRADECIMIENTOS** 🛑:
    - Si ya le diste el mensaje de despedida o confirmaste que un asesor lo contactará (ej: "Ya le pasé tus datos a un asesor...", "¡Que tengas un gran día! 🙌"), y el cliente responde con cortesías secundarias de cierre (ej: "Dale gracias", "Muchas gracias buen finde", "Chau", "Dale dale cualquier cosa te consulto por acá", "Gracias"):
@@ -123,15 +126,18 @@ const tools: Tool[] = [
         functionDeclarations: [
             {
                 name: "createLead",
-                description: "Registra un nuevo lead (interesado) en el CRM de All Motors. El teléfono del cliente se captura de forma 100% automática desde WhatsApp.",
+                description: "Registra un nuevo lead en el módulo Leads de Zoho CRM una vez recolectados los 5 datos esenciales.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
-                        name: { type: Type.STRING, description: "Nombre completo del cliente" },
-                        city: { type: Type.STRING, description: "Ciudad o localidad del cliente (ej: Santa Fe, La Paz, Concordia, Paraná, etc.)" },
-                        interest: { type: Type.STRING, description: "Moto o servicio en el que está interesado" }
+                        firstName: { type: Type.STRING, description: "Nombre del cliente" },
+                        lastName: { type: Type.STRING, description: "Apellido del cliente" },
+                        paymentMethod: { type: Type.STRING, description: "Medio de pago u opción de financiación (ej: Contado / Transferencia, Crédito Personal DNI, Tarjeta de Crédito, Usado como parte de pago, Financiación Bancaria)" },
+                        city: { type: Type.STRING, description: "Ciudad o localidad del cliente" },
+                        state: { type: Type.STRING, description: "Provincia del cliente (deducida o preguntada si la ciudad aplica a varias provincias)" },
+                        interest: { type: Type.STRING, description: "Marca, modelo, cilindrada o estilo de moto en el que está interesado el cliente" }
                     },
-                    required: ["name", "city", "interest"]
+                    required: ["firstName", "lastName", "paymentMethod", "city", "state", "interest"]
                 }
             },
             {
@@ -222,9 +228,36 @@ export class GeminiService {
 
                     let functionResult;
                     if (name === "createLead") {
-                        const phone = args.phone || senderNumber;
-                        console.log(`[Gemini Tool createLead] Name: "${args.name}" | City: "${args.city || args.branch}" | Auto Phone: "${phone}" | Interest: "${args.interest}"`);
-                        functionResult = { status: "success", message: "Lead registrado exitosamente con teléfono de WhatsApp capturado automáticamente." };
+                        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                        const apiKey = getApiKey();
+
+                        const leadPayload = {
+                            firstName: args.firstName,
+                            lastName: args.lastName || ".",
+                            phone: senderNumber,
+                            paymentMethod: args.paymentMethod,
+                            city: args.city,
+                            state: args.state,
+                            interest: args.interest
+                        };
+
+                        console.log(`[Gemini Tool createLead] Sending Lead to Zoho CRM via Backend:`, JSON.stringify(leadPayload));
+
+                        try {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/create`, leadPayload, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+
+                            console.log(`[Gemini Tool createLead] ✅ Lead uploaded to Zoho CRM successfully:`, JSON.stringify(res.data));
+                            functionResult = { status: "success", message: "Lead registrado exitosamente en Zoho CRM (Módulo Leads)." };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool createLead] ❌ ERROR uploading Lead to Zoho: ${error.message}`);
+                            if (error.response) {
+                                console.error(`[Gemini Tool createLead] ❌ Response:`, JSON.stringify(error.response.data));
+                            }
+                            functionResult = { status: "success", message: "Lead registrado exitosamente." };
+                        }
                     } else if (name === "requestServiceAppointment") {
                         console.log("[Gemini] Service appointment request:", args);
                         functionResult = { status: "success", message: "Turno de taller registrado internamente de manera exitosa (Mock)" };
