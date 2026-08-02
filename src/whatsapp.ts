@@ -211,38 +211,59 @@ class WhatsappService {
             return;
         }
 
-        // Identificadores para la whitelist
-        const senderNumber = senderJid.split('@')[0];
-        
-        // Intentar obtener el número de teléfono real (PN) si es un LID usando el mapeo de Baileys
-        let alternativePn = '';
-        if (senderJid.endsWith('@lid')) {
-            console.log(`[WSP] Processing LID: ${senderNumber}. PushName: ${msg.pushName}`);
-            try {
-                const mappingPath = path.join(process.cwd(), 'auth_info_baileys', `lid-mapping-${senderNumber}_reverse.json`);
+        // --- RESOLUCIÓN DE NÚMERO DE TELÉFONO REAL (PN) ---
+        let realPhoneNumber = '';
+        const rawSenderNumber = senderJid.split('@')[0];
+
+        if (senderJid.endsWith('@s.whatsapp.net')) {
+            realPhoneNumber = rawSenderNumber;
+        }
+
+        // 1. Verificar si Baileys incluyó un JID de teléfono alternativo (remoteJidAlt / participantAlt)
+        const remoteJidAlt = (msg.key as any)?.remoteJidAlt || (msg.key as any)?.participantAlt || (msg as any)?.participant || '';
+        if (!realPhoneNumber && remoteJidAlt && typeof remoteJidAlt === 'string' && remoteJidAlt.endsWith('@s.whatsapp.net')) {
+            realPhoneNumber = remoteJidAlt.split('@')[0];
+            console.log(`[WSP Phone Resolution] Resolved LID ${rawSenderNumber} via remoteJidAlt JID to PN: ${realPhoneNumber}`);
+        }
+
+        // 2. Si es un LID (@lid), buscar mapeo persistido de Baileys en la carpeta de autenticación dinámica (AUTH_DIR)
+        if (!realPhoneNumber && senderJid.endsWith('@lid')) {
+            console.log(`[WSP Phone Resolution] Processing LID: ${rawSenderNumber}. PushName: ${msg.pushName}`);
+            const authDir = process.env.AUTH_DIR || 'auth_info_baileys_bot';
+            const possibleMappingPaths = [
+                path.join(process.cwd(), authDir, `lid-mapping-${rawSenderNumber}_reverse.json`),
+                path.join(process.cwd(), authDir, `lid-mapping-${rawSenderNumber}.json`),
+                path.join(process.cwd(), 'auth_info_baileys_bot', `lid-mapping-${rawSenderNumber}_reverse.json`),
+                path.join(process.cwd(), 'auth_info_baileys_bot', `lid-mapping-${rawSenderNumber}.json`)
+            ];
+
+            for (const mappingPath of possibleMappingPaths) {
                 if (fs.existsSync(mappingPath)) {
-                    const pnData = fs.readFileSync(mappingPath, 'utf8');
-                    // Baileys lo guarda con comillas: "54911223344"
-                    alternativePn = pnData.replace(/"/g, '').trim();
-                    console.log(`[WSP] Resolved LID to PN: ${alternativePn}`);
+                    try {
+                        const pnData = fs.readFileSync(mappingPath, 'utf8');
+                        const cleaned = pnData.replace(/[^0-9]/g, '').trim();
+                        if (cleaned) {
+                            realPhoneNumber = cleaned;
+                            console.log(`[WSP Phone Resolution] ✅ Resolved LID ${rawSenderNumber} via ${path.basename(mappingPath)} to PN: ${realPhoneNumber}`);
+                            break;
+                        }
+                    } catch (err) {
+                        console.error('[WSP Phone Resolution] Error reading LID mapping file:', err);
+                    }
                 }
-            } catch (err) {
-                console.error('[WSP] Error resolving LID to PN:', err);
             }
         }
 
-        // 1. Verificar Lista Blanca (DESACTIVADO TEMPORALMENTE PARA PRUEBAS)
-        /*
-        const isAllowedDirect = await this.checkWhitelist(senderNumber);
-        const isAllowedAlternative = alternativePn ? await this.checkWhitelist(alternativePn) : false;
-        
-        if (!isAllowedDirect && !isAllowedAlternative) {
-            console.log(`[WSP] Access denied for: ${senderNumber} (PN: ${alternativePn || 'N/A'})`);
-            return;
-        }
-        */
+        // Sanear dejando únicamente dígitos numéricos (ej. 5493437435266)
+        realPhoneNumber = realPhoneNumber.replace(/\D/g, '');
 
-        console.log(`[WSP] Access granted (Whitelist bypassed) for: ${senderNumber} (PN: ${alternativePn || 'N/A'})`);
+        // Si falló la resolución de PN y era un LID, dejar rawSenderNumber limpio
+        if (!realPhoneNumber) {
+            realPhoneNumber = rawSenderNumber.replace(/\D/g, '');
+        }
+
+        const senderNumber = realPhoneNumber;
+        console.log(`[WSP Access Granted] JID: ${senderJid} -> Real Phone Number: "${senderNumber}"`);
 
         const messageText = msg.message?.conversation || 
                           msg.message?.extendedTextMessage?.text || 
