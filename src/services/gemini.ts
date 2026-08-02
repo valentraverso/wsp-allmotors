@@ -42,7 +42,7 @@ const client = new GoogleGenAI({
     apiKey: process.env.GEMINI_API_KEY || "",
 });
 
-const SYSTEM_PROMPT = `
+const SYSTEM_PROMPT_TEMPLATE = `
 Eres el asistente virtual de All Motors 🏍️, un importante concesionario multimarca en Argentina.
 
 TONO Y PERSONALIDAD:
@@ -127,19 +127,21 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 6. **TURNOS DE SERVICE (TALLER)** 🛠️:
    - Registrá el turno usando 'requestServiceAppointment' solicitando Nombre, Moto, Service, Sucursal y Fecha (el teléfono es automático desde WhatsApp).
 
-7. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (DATOS ESENCIALES Y CRÉDITO DNI)** 📝:
+7. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (REQUERIMIENTO OBLIGATORIO DE NOMBRE Y APELLIDO)** 📝:
    - **DATOS ESENCIALES PARA CARGAR EN ZOHO CRM**:
-     Antes de invocar 'createLead' y cargar el cliente en Zoho CRM, **DEBES HABER RECOLECTADO OBLIGATORIAMENTE LOS 5 DATOS ESENCIALES**:
+     Antes de invocar 'createLead' y cargar el cliente en Zoho CRM, **DEBES HABER RECOLECTADO OBLIGATORIAMENTE LOS DATOS COMPLETOS**:
      1. **Medio de Pago (paymentMethod)**: Asigna EXACTAMENTE una de las opciones oficiales de Zoho CRM: 'Efectivo', 'Tarjeta de credito', 'Recibo de sueldo', 'Entrega + Tarjeta', 'Entrega + Recibo', 'Entrega + DNI', 'Otro', 'DNI'.
-     2. **Nombre Completo (firstName y lastName)**: Pregunta Nombre y Apellido del cliente.
+     2. **Nombre Completo (firstName y lastName)**: **REGISTRO OBLIGATORIO DE AMBOS**.
+        - 🔴 **REGLA CRÍTICA DE APELLIDO**: Si el cliente te dice solo su primer nombre (ej. "Juan", "Martín"), **ESTÁ PROHIBIDO EJECUTAR 'createLead' O DECIRLE QUE UN ASESOR SE CONTACTARÁ O QUE SUS DATOS FUERON REGISTRADOS**.
+        - Pregúntale primero en 1 oración: "¡Buenísimo Juan! ¿Y tu apellido cuál es así completamos tu ficha y te mandamos todo? 🚀".
      3. **Teléfono (phone)**: **AUTOMÁTICO desde Baileys**. NUNCA SE LO PIDAS AL CLIENTE.
      4. **Ciudad (city)**: Pregunta de qué ciudad/localidad es.
      5. **Provincia (state)**: Se carga dinámicamente según la ciudad. **REGLA CRÍTICA**: Si la ciudad indicada puede pertenecer a 2 o más provincias (ej. San Lorenzo, San Martín, Santa Rosa), **DEBES PREGUNTARLE EXPLÍCITAMENTE DE QUÉ PROVINCIA ES** antes de registrar el lead.
    - **DNI DEL CLIENTE Y MONTO DISPONIBLE PREAPROBADO**:
      - El campo 'dni' enviado a 'createLead' DEBE SER EL DNI DEL CLIENTE PRINCIPAL que realiza la consulta.
      - Si la consulta de crédito ('checkFinancing') del DNI del cliente principal arrojó un monto preaprobado disponible (ej. 1500000), enviá dicho monto en el parámetro 'availableAmount' para que el sistema lo registre en Zoho CRM en el campo 'Monto_disponible' junto con la fecha de hoy en 'Fecha_consulta_monto_disponible'.
-   - **PROHIBICIÓN ABSOLUTA DE PEDIR SUCURSAL O TELÉFONO**: PROHIBIDO pedir "sucursal de preferencia" o pedir teléfono. Pregunta siempre por su "ciudad" o "localidad" y Nombre.
-   - Una vez recolectados los 5 datos esenciales, ejecutá 'createLead'.
+   - **MOMENTO DE CONFIRMACIÓN DE CONTACTO AL CLIENTE**:
+     - **SOLO DILE AL CLIENTE QUE UN ASESOR SE CONTACTARÁ CON ÉL O QUE SE LE ENVIARÁN FOTOS Y PRECIOS LUEGO DE HABER EJECUTADO 'createLead' CON ÉXITO HABIENDO OBTENIDO NOMBRE Y APELLIDO COMPLETOS**.
 
 8. **DESPEDIDA Y CORTE ABSOLUTO DE BUCLE DE AGRADECIMIENTOS** 🛑:
    - Si ya le diste el mensaje de despedida o confirmaste que un asesor lo contactará (ej: "Ya le pasé tus datos a un asesor...", "¡Que tengas un gran día! 🙌"), y el cliente responde con cortesías secundarias de cierre (ej: "Dale gracias", "Muchas gracias buen finde", "Chau", "Dale dale cualquier cosa te consulto por acá", "Gracias"):
@@ -153,6 +155,88 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 
 Sé directo, buena onda, ultra conciso y 100% enfocado en resolver rápido. 🇦🇷
 `;
+
+function getBusinessHoursInfo() {
+    const now = new Date();
+    // Obtener hora actual en la zona horaria oficial de Argentina
+    const argTimeString = now.toLocaleString("en-US", { timeZone: "America/Argentina/Buenos_Aires" });
+    const argDate = new Date(argTimeString);
+
+    const dayOfWeek = argDate.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+    const hours = argDate.getHours();
+    const minutes = argDate.getMinutes();
+    const currentMinutes = hours * 60 + minutes;
+
+    let isOpen = false;
+    let reopeningText = "";
+
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        // Lunes a Viernes: 08:30 (510 min) a 12:30 (750 min) y 16:30 (990 min) a 20:30 (1230 min)
+        const isMorning = currentMinutes >= 510 && currentMinutes < 750;
+        const isAfternoon = currentMinutes >= 990 && currentMinutes < 1230;
+        if (isMorning || isAfternoon) {
+            isOpen = true;
+        } else if (currentMinutes < 510) {
+            reopeningText = "hoy a las 08:30hs";
+        } else if (currentMinutes >= 750 && currentMinutes < 990) {
+            reopeningText = "hoy por la tarde a las 16:30hs";
+        } else {
+            if (dayOfWeek === 5) {
+                reopeningText = "mañana sábado a las 09:00hs";
+            } else {
+                reopeningText = "mañana a las 08:30hs";
+            }
+        }
+    } else if (dayOfWeek === 6) {
+        // Sábado: 09:00 (540 min) a 13:00 (780 min)
+        if (currentMinutes >= 540 && currentMinutes < 780) {
+            isOpen = true;
+        } else if (currentMinutes < 540) {
+            reopeningText = "hoy sábado a las 09:00hs";
+        } else {
+            reopeningText = "el próximo lunes a las 08:30hs";
+        }
+    } else {
+        // Domingo: Cerrado todo el día
+        reopeningText = "mañana lunes a las 08:30hs";
+    }
+
+    const currentFormattedTime = argDate.toLocaleTimeString("es-AR", { hour: '2-digit', minute: '2-digit' });
+    const dayNames = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+    const currentDayName = dayNames[dayOfWeek];
+
+    return {
+        isOpen,
+        currentDayName,
+        currentFormattedTime,
+        reopeningText
+    };
+}
+
+function buildSystemPrompt(): string {
+    const hoursInfo = getBusinessHoursInfo();
+
+    const scheduleBlock = `
+10. **HORARIOS COMERCIALES DE ATENCIÓN Y DÍAS HÁBILES EN TIEMPO REAL** ⏰:
+   - **Horario Habitual del Concesionario**:
+     - Lunes a Viernes: 08:30 a 12:30hs y 16:30 a 20:30hs.
+     - Sábados: 09:00 a 13:00hs.
+     - Domingos y Feriados: CERRADO.
+   - **ESTADO ACTUAL DEL CONCESIONARIO EN TIEMPO REAL**:
+     - Día y Hora Actual (Argentina): ${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs.
+     - Estado Comercial: ${hoursInfo.isOpen ? "🟢 ABIERTO (En horario de atención público)" : "🔴 CERRADO (Fuera de horario de atención)"}
+   - **INSTRUCCIÓN OBLIGATORIA SEGÚN ESTADO DE ATENCIÓN**:
+     ${hoursInfo.isOpen 
+       ? `- Como el concesionario está ABIERTO en este momento, cuando registres al cliente o te consulte cuándo se lo contacta, indicale que en breve / hoy un asesor le enviará la información.` 
+       : `- **🔴 ATENCIÓN: EL CONCESIONARIO ESTÁ CERRADO EN ESTE MOMENTO**:
+          - Debes responder amablemente en 1 o 2 oraciones avisando que en este momento el concesionario se encuentra cerrado.
+          - Informale que le enviaremos la información, fotos o catálogo **${hoursInfo.reopeningText}** apenas volvamos a abrir.
+          - Si el cliente consulta nuestros horarios, mencionale que atendemos Lunes a Viernes de 08:30 a 12:30hs y de 16:30 a 20:30hs, y Sábados de 09:00 a 13:00hs.`
+     }
+`;
+
+    return SYSTEM_PROMPT_TEMPLATE + "\n" + scheduleBlock;
+}
 
 const tools: Tool[] = [
     {
@@ -259,7 +343,7 @@ export class GeminiService {
                     model: currentModel,
                     contents: contents,
                     config: {
-                        systemInstruction: SYSTEM_PROMPT,
+                        systemInstruction: buildSystemPrompt(),
                         tools: tools,
                     }
                 });
@@ -496,7 +580,7 @@ export class GeminiService {
                         { role: "user", parts: toolResults }
                     ],
                     config: {
-                        systemInstruction: SYSTEM_PROMPT,
+                        systemInstruction: buildSystemPrompt(),
                         tools: tools,
                     }
                 });
