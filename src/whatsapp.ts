@@ -287,7 +287,7 @@ const userMessageBatches = new Map<string, UserMessageBatch>();
                     const latestState = userStates.get(senderJid);
                     const history = latestState?.history || [];
                     
-                    const aiResponse = await geminiService.chat(combinedText, history);
+                    const aiResponse = await geminiService.chat(combinedText, history, senderNumber);
                     
                     userStates.set(senderJid, {
                         step: 'CHATTING',

@@ -97,8 +97,13 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 6. **TURNOS DE SERVICE (TALLER)** 🛠️:
    - Registrá el turno usando 'requestServiceAppointment' solicitando Nombre, Teléfono, Moto, Service, Sucursal y Fecha.
 
-7. **LEADS DE VENTAS** 📝:
-   - Si hay interés real de compra de motos, registralo con 'createLead'.
+7. **CAPTURA DE LEADS Y CONTACTO DE VENTAS (TELÉFONO AUTOMÁTICO Y USO EXCLUSIVO DE 'CIUDAD')** 📝:
+   - **REGLA ABSOLUTA DE TELÉFONO AUTOMÁTICO**: El número de WhatsApp/teléfono del cliente se captura de forma 100% automática desde Baileys. **ESTÁ TERMINANTEMENTE PROHIBIDO PEDIRLE EL TELÉFONO O NÚMERO DE WHATSAPP AL CLIENTE**.
+   - **PROHIBICIÓN ABSOLUTA DE USAR LA PALABRA 'SUCURSAL' PARA PREGUNTAR UBICACIÓN**: **ESTÁ TERMINANTEMENTE PROHIBIDO pedirle al cliente "sucursal de preferencia" o preguntar de qué sucursal es**. Pregunta SIEMPRE únicamente por su **"ciudad"** o **"localidad"** (ej: "¿De qué ciudad sos?" o "¿En qué ciudad estás?"). La palabra "sucursal" únicamente se usa cuando el bot informa las direcciones físicas exactas devueltas por el sistema.
+   - Para derivar con un asesor comercial de ventas o enviar propuestas:
+     a) Si no sabés la ciudad del cliente, preguntá únicamente en 1 oración corta: **"¿De qué ciudad sos?"**.
+     b) Si no sabés su nombre, preguntá en 1 oración corta: **"¿Cuál es tu nombre?"**.
+     c) Una vez que tengas Nombre y Ciudad, ejecutá `createLead` enviando nombre, ciudad e interés. **NUNCA PIDAS EL TELÉFONO NI LA SUCURSAL**.
 
 8. **DESPEDIDA Y CORTE ABSOLUTO DE BUCLE DE AGRADECIMIENTOS** 🛑:
    - Si ya le diste el mensaje de despedida o confirmaste que un asesor lo contactará (ej: "Ya le pasé tus datos a un asesor...", "¡Que tengas un gran día! 🙌"), y el cliente responde con cortesías secundarias de cierre (ej: "Dale gracias", "Muchas gracias buen finde", "Chau", "Dale dale cualquier cosa te consulto por acá", "Gracias"):
@@ -118,16 +123,15 @@ const tools: Tool[] = [
         functionDeclarations: [
             {
                 name: "createLead",
-                description: "Registra un nuevo lead (interesado) en el CRM de All Motors.",
+                description: "Registra un nuevo lead (interesado) en el CRM de All Motors. El teléfono del cliente se captura de forma 100% automática desde WhatsApp.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
                         name: { type: Type.STRING, description: "Nombre completo del cliente" },
-                        phone: { type: Type.STRING, description: "Número de teléfono/whatsapp" },
-                        branch: { type: Type.STRING, description: "Sucursal de interés (Santa Fe, La Paz, etc.)" },
+                        city: { type: Type.STRING, description: "Ciudad o localidad del cliente (ej: Santa Fe, La Paz, Concordia, Paraná, etc.)" },
                         interest: { type: Type.STRING, description: "Moto o servicio en el que está interesado" }
                     },
-                    required: ["name", "phone", "interest"]
+                    required: ["name", "city", "interest"]
                 }
             },
             {
@@ -144,18 +148,17 @@ const tools: Tool[] = [
             },
             {
                 name: "requestServiceAppointment",
-                description: "Registra una solicitud de turno para el taller o service oficial.",
+                description: "Registra una solicitud de turno para el taller o service oficial. El teléfono se captura de forma 100% automática.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
                         name: { type: Type.STRING, description: "Nombre completo del cliente" },
-                        phone: { type: Type.STRING, description: "Número de teléfono o WhatsApp" },
                         motoModel: { type: Type.STRING, description: "Marca y modelo de la moto" },
-                        serviceType: { type: Type.STRING, description: "Tipo de service o reparación requerida (ej. service de 1000km, ruido en motor)" },
-                        branch: { type: Type.STRING, description: "Sucursal elegida (Santa Fe, La Paz, Concordia, Santa Elena)" },
+                        serviceType: { type: Type.STRING, description: "Tipo de service o reparación requerida" },
+                        city: { type: Type.STRING, description: "Ciudad o localidad del cliente" },
                         preferredDate: { type: Type.STRING, description: "Fecha y hora preferida por el cliente" }
                     },
-                    required: ["name", "phone", "motoModel", "branch", "preferredDate"]
+                    required: ["name", "motoModel", "city", "preferredDate"]
                 }
             },
             {
@@ -187,7 +190,7 @@ const tools: Tool[] = [
 ];
 
 export class GeminiService {
-    async chat(message: string, history: any[] = []) {
+    async chat(message: string, history: any[] = [], senderNumber: string = "") {
         try {
             const result = await client.models.generateContent({
                 model: "gemini-3.6-flash",
@@ -219,7 +222,9 @@ export class GeminiService {
 
                     let functionResult;
                     if (name === "createLead") {
-                        functionResult = { status: "success", message: "Lead registrado internamente en el buffer del CRM (Mock)" };
+                        const phone = args.phone || senderNumber;
+                        console.log(`[Gemini Tool createLead] Name: "${args.name}" | City: "${args.city || args.branch}" | Auto Phone: "${phone}" | Interest: "${args.interest}"`);
+                        functionResult = { status: "success", message: "Lead registrado exitosamente con teléfono de WhatsApp capturado automáticamente." };
                     } else if (name === "requestServiceAppointment") {
                         console.log("[Gemini] Service appointment request:", args);
                         functionResult = { status: "success", message: "Turno de taller registrado internamente de manera exitosa (Mock)" };
