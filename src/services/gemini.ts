@@ -362,7 +362,7 @@ export class GeminiService {
         throw lastError;
     }
 
-    async chat(message: string, history: any[] = [], senderNumber: string = "") {
+    async chat(message: string, history: any[] = [], senderNumber: string = "", senderJid: string = "") {
         try {
             const contentsPayload = [
                 ...history,
@@ -393,6 +393,7 @@ export class GeminiService {
                         const apiKey = getApiKey();
 
                         const leadPayload = {
+                            jid: senderJid || senderNumber,
                             firstName: args.firstName,
                             lastName: args.lastName || ".",
                             phone: senderNumber,
@@ -404,16 +405,16 @@ export class GeminiService {
                             availableAmount: args.availableAmount || null
                         };
 
-                        console.log(`[Gemini Tool createLead] Sending Lead to Zoho CRM via Backend:`, JSON.stringify(leadPayload));
+                        console.log(`[Gemini Tool createLead] Sending/Updating Lead in Zoho CRM via Backend:`, JSON.stringify(leadPayload));
 
                         try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/create`, leadPayload, {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/upsert`, leadPayload, {
                                 headers: { 'x-api-key': apiKey },
                                 timeout: 15000
                             });
 
-                            console.log(`[Gemini Tool createLead] ✅ Lead uploaded to Zoho CRM successfully:`, JSON.stringify(res.data));
-                            functionResult = { status: "success", message: "Lead registrado exitosamente en Zoho CRM (Módulo Leads)." };
+                            console.log(`[Gemini Tool createLead] ✅ Lead uploaded/updated in Zoho CRM successfully:`, JSON.stringify(res.data));
+                            functionResult = { status: "success", message: "Lead registrado/actualizado exitosamente en Zoho CRM (Módulo Leads)." };
                         } catch (error: any) {
                             console.error(`[Gemini Tool createLead] ❌ ERROR uploading Lead to Zoho: ${error.message}`);
                             if (error.response) {

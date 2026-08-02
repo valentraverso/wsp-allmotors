@@ -306,9 +306,30 @@ class WhatsappService {
 
                 try {
                     const latestState = userStates.get(senderJid);
-                    const history = latestState?.history || [];
+                    let history = latestState?.history || [];
                     
-                    const aiResponse = await geminiService.chat(combinedText, history, senderNumber);
+                    // Si el historial en memoria RAM está vacío (ej. tras un reinicio de PM2), hidratar desde MongoDB
+                    if (history.length === 0) {
+                        try {
+                            const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                            const apiKey = process.env.BACKEND_API_KEY || "";
+                            const syncRes = await axios.get(`${backendUrl}/api/v1/crm/chats/${encodeURIComponent(senderJid)}`, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 4000
+                            });
+                            if (syncRes.data?.data?.history && Array.isArray(syncRes.data.data.history)) {
+                                history = syncRes.data.data.history.map((h: any) => ({
+                                    role: h.role,
+                                    parts: [{ text: h.text }]
+                                }));
+                                console.log(`[WSP Sync] ✅ Hydrated ${history.length} historical messages from MongoDB for JID: ${senderJid}`);
+                            }
+                        } catch (e: any) {
+                            // Ignorar error si no existe chat previo
+                        }
+                    }
+
+                    const aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid);
                     
                     userStates.set(senderJid, {
                         step: 'CHATTING',
@@ -318,10 +339,27 @@ class WhatsappService {
                     if (aiResponse.text && aiResponse.text.trim()) {
                         await this.sendMessage(senderJid, aiResponse.text.trim());
                     }
+
+                    // Sincronizar y guardar la conversación en MongoDB (colección whatsapp_chats)
+                    const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                    const apiKey = process.env.BACKEND_API_KEY || "";
+                    const syncPayload = {
+                        jid: senderJid,
+                        phone: senderNumber,
+                        pushName: msg.pushName || "",
+                        messages: [
+                            { role: "user", text: combinedText, timestamp: new Date().toISOString() },
+                            { role: "model", text: aiResponse.text?.trim() || "", timestamp: new Date().toISOString() }
+                        ]
+                    };
+
+                    axios.post(`${backendUrl}/api/v1/crm/chat/sync`, syncPayload, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 5000
+                    }).catch(err => console.error('[WSP Chat Sync Error]:', err.message));
+
                 } catch (err: any) {
                     console.error('[WSP Error Handler] Error calling Gemini after retries:', err.message);
-                    // REGLA CRÍTICA: NO ENVIAR MENSAJES DE ERROR AL CLIENTE (ej. "escribinos más tarde").
-                    // Se registra silenciosamente en logs. El cliente no recibe respuestas de fallo.
                 }
             }, 30000);
         }
