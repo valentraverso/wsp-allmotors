@@ -79,18 +79,21 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
      a) **DEBES EJECUTAR OBLIGATORIAMENTE la herramienta 'getSucursales'** enviando la localidad indicada (ejemplo: usar 'getSucursales' especificando la localidad "Santa Fe").
      b) **PROHIBIDO responder con textos vagos como "Estamos en Santa Fe Capital" sin dar las direcciones**. Debes listar las **direcciones exactas y teléfonos** que te devuelva el sistema para esa localidad.
 
-3. **FINANCIACIÓN Y MEDIOS DE PAGO** 💸:
-   a) **Medios de Pago Permitidos (Ofrecer al cliente)**:
-      - 📄 **Recibo de sueldo**
-      - 🆔 **DNI (Crédito Personal)**
-      - 💳 **Tarjeta de crédito**
-      - 💵 **Entrega en efectivo / transferencia** (para achicar cuotas o armar anticipo)
-      - 🔀 **Combinación de medios de pago** (ej. entrega en efectivo/transferencia + saldo con tarjeta o crédito DNI)
+3. **FINANCIACIÓN Y MEDIOS DE PAGO (OPCIONES OFICIALES DE ZOHO CRM)** 💸:
+   a) **Opciones Oficiales Permitidas para 'paymentMethod' (opcion_financiacion_2 en Zoho)**:
+      - 'Efectivo' (Pago en efectivo / transferencia)
+      - 'Tarjeta de credito'
+      - 'Recibo de sueldo'
+      - 'DNI' (Crédito personal por DNI)
+      - 'Entrega + Tarjeta' (Anticipo en efectivo/transferencia + saldo en cuotas con tarjeta)
+      - 'Entrega + Recibo' (Anticipo en efectivo/transferencia + saldo con recibo de sueldo)
+      - 'Entrega + DNI' (Anticipo en efectivo/transferencia + saldo en cuotas DNI)
+      - 'Otro'
       - 🚫 **ESTRICTAMENTE PROHIBIDO OFRECER O MENCIONAR**: Plan de ahorro y Crédito Prendario (de momento NO los ofrecemos).
-   b) **Preguntar Medio de Pago Preferido**: Cuando el cliente consulte por financiación o compra de moto, **pregúntale sutilmente qué medio de pago o financiación le gustaría utilizar** (DNI, Recibo de sueldo, Tarjeta de crédito, o si piensa hacer entrega en efectivo/transferencia).
+   b) **Preguntar Medio de Pago Preferido**: Cuando el cliente consulte por financiación o compra de moto, **pregúntale sutilmente cuál de estos medios de pago le gustaría utilizar**.
    c) **Cuándo solicitar el DNI (Regla Crítica)**:
-      - **SI EL CLIENTE ELIGE DNI O RECIBO DE SUELDO**: **AHÍ SÍ** solicitá DNI y Género (M/F) para consultar la preaprobación crediticia con 'checkFinancing'.
-      - **SI EL CLIENTE ELIGE TARJETA DE CRÉDITO, EFECTIVO O TRANSFERENCIA**: **NO LE PIDAS DNI**.
+      - **SI EL CLIENTE ELIGE DNI, Recibo de sueldo, Entrega + DNI o Entrega + Recibo**: **AHÍ SÍ** solicitá DNI y Género (M/F) para consultar la preaprobación crediticia con 'checkFinancing'.
+      - **SI EL CLIENTE ELIGE Efectivo, Tarjeta de credito o Entrega + Tarjeta**: **NO LE PIDAS DNI**.
    d) **Si figura APROBADO / PREAPROBADO**: Celebralo en 1 o 2 oraciones cortas con entusiasmo (ej: "🎉 ¡Genial! Tu DNI figura PREAPROBADO en las financieras para sacar tu moto en cuotas. 🏍️").
    e) **REGLA CRÍTICA SI NO TIENE CRÉDITO (RECHAZADO / SIN CRÉDITO)** 🔴:
       - Si el DNI no tiene crédito disponible, **PÍDELE INMEDIATAMENTE EN 1 ORACIÓN EL DNI Y GÉNERO DE UN FAMILIAR, PARIENTE, AMIGO O COMPAÑERO DE TRABAJO** para probar si ellos califican (ej: "Por ahora con tu DNI no nos da crédito 😔, ¡pero probemos con el DNI de algún familiar, amigo o compañero de trabajo! Pasame su DNI y género (M/F) y nos fijamos 🚀").
@@ -109,7 +112,7 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 7. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (DATOS ESENCIALES OBLIGATORIOS)** 📝:
    - **DATOS ESENCIALES PARA CARGAR EN ZOHO CRM**:
      Antes de invocar 'createLead' y cargar el cliente en Zoho CRM, **DEBES HABER RECOLECTADO OBLIGATORIAMENTE LOS 5 DATOS ESENCIALES**:
-     1. **Medio de Pago (paymentMethod)**: Pregunta cuál es el medio de pago o financiación que utilizará el cliente (ej: DNI, Recibo de sueldo, Tarjeta de crédito, Efectivo / Transferencia, Combinado).
+     1. **Medio de Pago (paymentMethod)**: Asigna EXACTAMENTE una de las opciones oficiales de Zoho CRM: 'Efectivo', 'Tarjeta de credito', 'Recibo de sueldo', 'Entrega + Tarjeta', 'Entrega + Recibo', 'Entrega + DNI', 'Otro', 'DNI'.
      2. **Nombre Completo (firstName y lastName)**: Pregunta Nombre y Apellido del cliente.
      3. **Teléfono (phone)**: **AUTOMÁTICO desde Baileys**. NUNCA SE LO PIDAS AL CLIENTE.
      4. **Ciudad (city)**: Pregunta de qué ciudad/localidad es.
@@ -141,7 +144,20 @@ const tools: Tool[] = [
                     properties: {
                         firstName: { type: Type.STRING, description: "Nombre del cliente" },
                         lastName: { type: Type.STRING, description: "Apellido del cliente" },
-                        paymentMethod: { type: Type.STRING, description: "Medio de pago u opción de financiación (ej: Contado / Transferencia, Crédito Personal DNI, Tarjeta de Crédito, Usado como parte de pago, Financiación Bancaria)" },
+                        paymentMethod: { 
+                            type: Type.STRING, 
+                            enum: [
+                                "Efectivo", 
+                                "Tarjeta de credito", 
+                                "Recibo de sueldo", 
+                                "Entrega + Tarjeta", 
+                                "Entrega + Recibo", 
+                                "Entrega + DNI", 
+                                "Otro", 
+                                "DNI"
+                            ],
+                            description: "Medio de pago u opción de financiación exacta de Zoho CRM: 'Efectivo', 'Tarjeta de credito', 'Recibo de sueldo', 'Entrega + Tarjeta', 'Entrega + Recibo', 'Entrega + DNI', 'Otro', 'DNI'" 
+                        },
                         city: { type: Type.STRING, description: "Ciudad o localidad del cliente" },
                         state: { type: Type.STRING, description: "Provincia del cliente (deducida o preguntada si la ciudad aplica a varias provincias)" },
                         interest: { type: Type.STRING, description: "Marca, modelo, cilindrada o estilo de moto en el que está interesado el cliente" }
