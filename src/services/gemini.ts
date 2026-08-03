@@ -485,7 +485,7 @@ export class GeminiService {
                                 cellphone: ""
                             }, {
                                 headers: { 'x-api-key': apiKey },
-                                timeout: 25000
+                                timeout: 35000
                             });
 
                             console.log(`[Gemini Tool checkFinancing] ✅ HTTP Success ${res.status}:`, JSON.stringify(res.data));
@@ -495,10 +495,15 @@ export class GeminiService {
                             if (error.response) {
                                 console.error(`[Gemini Tool checkFinancing] ❌ Response Status: ${error.response.status}`);
                                 console.error(`[Gemini Tool checkFinancing] ❌ Response Body:`, JSON.stringify(error.response.data));
+                            } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+                                console.error(`[Gemini Tool checkFinancing] ⏱️ Timeout excedido (35s) consultando API de preaprobación.`);
                             } else if (error.request) {
                                 console.error(`[Gemini Tool checkFinancing] ❌ No response received from server. Code: ${error.code}`);
                             }
-                            functionResult = { error: "No se pudo consultar la preaprobación crediticia en este momento." };
+                            functionResult = { 
+                                status: "error", 
+                                message: "La consulta a financieras demoró en responder. Podés continuar registrando datos o probar con otro DNI." 
+                            };
                         }
                         console.log(`[Gemini Tool checkFinancing] --------------------------------------------------`);
                     } else if (name === "getSucursales") {
