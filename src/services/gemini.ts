@@ -475,11 +475,11 @@ export class GeminiService {
 
                         console.log(`[Gemini Tool checkFinancing] --------------------------------------------------`);
                         console.log(`[Gemini Tool checkFinancing] DNI: ${dniClean} | Género: ${genderClean}`);
-                        console.log(`[Gemini Tool checkFinancing] Target Endpoint: ${backendUrl}/api/v1/finance/preapproval-financials`);
+                        console.log(`[Gemini Tool checkFinancing] Target Endpoint: ${backendUrl}/api/v1/finance/fast-preapproval`);
                         console.log(`[Gemini Tool checkFinancing] API Key Header: ${apiKey ? (apiKey.substring(0, 8) + '...') : '⚠️ MISSING / EMPTY (Define BACKEND_API_KEY in .env)'}`);
 
                         try {
-                            const res = await axios.post(`${backendUrl}/api/v1/finance/preapproval-financials`, {
+                            const res = await axios.post(`${backendUrl}/api/v1/finance/fast-preapproval`, {
                                 dni: dniClean,
                                 gender: genderClean,
                                 cellphone: ""
