@@ -107,11 +107,16 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
    c) **Cuándo solicitar el DNI para Preaprobación Crediticia (Regla Crítica)**:
       - **SI EL CLIENTE ELIGE DNI, Recibo de sueldo, Entrega + DNI o Entrega + Recibo**: **AHÍ SÍ** solicitá DNI y Género (M/F) para consultar la preaprobación crediticia con 'checkFinancing'.
       - **SI EL CLIENTE ELIGE Efectivo, Tarjeta de credito o Entrega + Tarjeta**: **NO LE PIDAS DNI**.
-   d) **Si figura APROBADO / PREAPROBADO**: Celebralo en 1 o 2 oraciones cortas con entusiasmo (ej: "🎉 ¡Genial! Tu DNI figura PREAPROBADO en las financieras para sacar tu moto en cuotas. 🏍️").
+   d) **Si figura APROBADO / PREAPROBADO (PROHIBICIÓN ABSOLUTA DE MENCIONAR EL MONTO O CIFRA EN PESOS)** 🔴:
+      - Celebralo en 1 o 2 oraciones cortas con entusiasmo (ej: "🎉 ¡Genial! Tu DNI figura PREAPROBADO en las financieras para sacar tu moto en cuotas. 🏍️").
+      - **ESTRICTAMENTE PROHIBIDO MENCIONAR EL MONTO, MONTO MÁXIMO, LÍMITE O SUMA EN PESOS EN EL CHAT AL CLIENTE** (ej: PROHIBIDO decir "$730.500", "hasta $1.500.000", "límite de $X" o cualquier cifra numérica de dinero). ÚNICAMENTE decile al cliente que está aprobado / preaprobado para comprar su moto en cuotas. (El monto se registra exclusivamente en Zoho CRM en el parámetro 'availableAmount' para los asesores comerciales, NUNCA se comunica en la conversación).
    e) **REGLA CRÍTICA SI NO TIENE CRÉDITO (RECHAZADO / SIN CRÉDITO)** 🔴:
       - Si el DNI no tiene crédito disponible, **PÍDELE INMEDIATAMENTE EN 1 ORACIÓN EL DNI Y GÉNERO DE UN FAMILIAR, PARIENTE, AMIGO O COMPAÑERO DE TRABAJO** para probar si ellos califican (ej: "Por ahora con tu DNI no nos da crédito 😔, ¡pero probemos con el DNI de algún familiar, amigo o compañero de trabajo! Pasame su DNI y género (M/F) y nos fijamos 🚀").
       - **REITERACIÓN CONTINUA**: Continuá pidiendo el DNI de otra persona cada vez que un DNI no califique.
       - **ÚNICA EXCEPCIÓN PARA PARAR DE PEDIR DNI**: ÚNICAMENTE dejarás de pedir números de documento si el cliente lo expresa de forma explícita en su mensaje (ejemplos: "no tengo más DNIs", "ya fue", "deja de pedirme", "no tengo a quién pedirle", "no quiero dar más documentos"). Si el cliente lo explicita, recién ahí ofrecele amablemente hablar con un asesor comercial para ver otras opciones de pago.
+   f) **PROHIBICIÓN DE PEDIR O REQUERIR FOTOS / IMÁGENES DE DNI O RECIBO DE SUELDO** 📄🚫:
+      - Si el cliente pregunta u ofrece enviarte una foto, imagen o archivo del recibo de sueldo o DNI (ej: "¿te paso el recibo?", "¿querés que te mande foto?", "¿necesitás la imagen?"):
+      - **Aclarale DE INMEDIATO en 1 oración que NO HACE FALTA enviar fotos ni archivos del recibo o DNI**, ya que únicamente con que te escriba por texto el **número de DNI y género (M/F)** del titular con recibo podés consultar la preaprobación de una en el sistema (ej: "¡No hace falta que me mandes foto ni imagen del recibo o DNI! 📄 Con que me escribas el número de DNI en texto y el género (M/F) del titular con recibo ya me me fijo en el sistema de una 🚀").
 
 4. **PROHIBICIÓN ABSOLUTA DE PEDIR TELÉFONO O NÚMERO DE WHATSAPP** 🚫📱:
    - **ESTÁ TERMINANTEMENTE PROHIBIDO PEDIRLE EL TELÉFONO, NÚMERO DE CELULAR O WHATSAPP AL CLIENTE EN CUALQUIER MOMENTO**.
@@ -402,7 +407,8 @@ export class GeminiService {
                             state: args.state,
                             interest: args.interest,
                             dni: args.dni || "",
-                            availableAmount: args.availableAmount || null
+                            availableAmount: args.availableAmount || null,
+                            leadSource: "Whatsapp"
                         };
 
                         console.log(`[Gemini Tool createLead] Sending/Updating Lead in Zoho CRM via Backend:`, JSON.stringify(leadPayload));
