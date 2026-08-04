@@ -489,7 +489,7 @@ export class GeminiService {
                             const res = await axios.post(`${backendUrl}/api/v1/finance/fast-preapproval`, {
                                 dni: dniClean,
                                 gender: genderClean,
-                                cellphone: ""
+                                cellphone: senderNumber || ""
                             }, {
                                 headers: { 'x-api-key': apiKey },
                                 timeout: 35000
