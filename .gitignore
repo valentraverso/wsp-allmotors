@@ -4,3 +4,6 @@ dist/
 auth_info_baileys/
 *.log
 .DS_Store
+
+# Tests Discovery
+test/discovery/
