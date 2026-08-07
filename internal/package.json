@@ -1,19 +1,14 @@
 {
-  "name": "wsp",
+  "name": "wsp-internal",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Servicio interno de notificaciones WhatsApp de All Motors Group (Puerto 4001)",
+  "main": "dist/index.js",
   "scripts": {
-    "build": "cd internal && npm run build && cd ../bot && npm run build",
-    "build:internal": "cd internal && npm run build",
-    "build:bot": "cd bot && npm run build",
-    "start": "pm2 start ecosystem.config.js"
+    "build": "tsc",
+    "dev": "nodemon src/index.ts",
+    "start": "node dist/index.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "@google/genai": "^2.8.0",
     "@hapi/boom": "^10.0.1",
     "@whiskeysockets/baileys": "^7.0.0-rc.9",
     "axios": "^1.15.2",
