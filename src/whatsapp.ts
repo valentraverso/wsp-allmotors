@@ -329,6 +329,22 @@ class WhatsappService {
                         }
                     }
 
+                    // --- CORTE DE BUCLE DE CORTESÍA / EMOJIS ---
+                    const isOnlyCourtesyOrEmoji = (text: string): boolean => {
+                        const cleaned = text.trim().toLowerCase().replace(/[^\w\s]/gi, '');
+                        const courtesyWords = ['gracias', 'muchas gracias', 'dale', 'chau', 'nos vemos', 'ok', 'oka', 'listo', 'buenísimo', 'buenisimo', 'de nada'];
+                        const isPureEmoji = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s\d👍🙌😊]*$/u.test(text.trim());
+                        return isPureEmoji || (cleaned.length < 25 && courtesyWords.some(w => cleaned.includes(w)));
+                    };
+
+                    const lastHistoryMsg = history.length > 0 ? history[history.length - 1] : null;
+                    const lastBotText = lastHistoryMsg && lastHistoryMsg.role === 'model' ? (lastHistoryMsg.parts?.[0]?.text || '').toLowerCase() : '';
+
+                    if (isOnlyCourtesyOrEmoji(combinedText) && (lastBotText.includes('de nada') || lastBotText.includes('que tengas') || lastBotText.includes('cualquier duda') || /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/u.test(lastBotText))) {
+                        console.log(`[WSP Courtesy Loop Cutoff] Bucle de cortesía/emoji detectado para ${senderNumber}. Silenciando respuesta.`);
+                        return;
+                    }
+
                     const aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid);
                     
                     userStates.set(senderJid, {
@@ -337,6 +353,14 @@ class WhatsappService {
                     });
 
                     if (aiResponse.text && aiResponse.text.trim()) {
+                        // Retardo aleatorio humano entre 40 segundos (40.000 ms) y 5 minutos (300.000 ms)
+                        const minDelay = 40000;
+                        const maxDelay = 300000;
+                        const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+                        const delaySeconds = Math.round(randomDelay / 1000);
+                        console.log(`[WSP Response Delay] Generando simulación de espera humana de ${delaySeconds}s (${(delaySeconds / 60).toFixed(1)} min) antes de enviar respuesta a ${senderNumber}...`);
+                        
+                        await new Promise(resolve => setTimeout(resolve, randomDelay));
                         await this.sendMessage(senderJid, aiResponse.text.trim());
                     }
 
