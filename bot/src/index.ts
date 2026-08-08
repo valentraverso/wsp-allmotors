@@ -6,6 +6,31 @@ import whatsappService from './whatsapp';
 import { authMiddleware } from './middleware/auth';
 import QRCode from 'qrcode';
 
+// Configuración de zona horaria Argentina (America/Argentina/Buenos_Aires) para los logs
+function getArgentinaTimestamp(): string {
+    const now = new Date();
+    return now.toLocaleString('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+}
+
+const originalLog = console.log;
+const originalWarn = console.warn;
+const originalError = console.error;
+const originalInfo = console.info;
+
+console.log = (...args: any[]) => originalLog(`[${getArgentinaTimestamp()}]`, ...args);
+console.warn = (...args: any[]) => originalWarn(`[${getArgentinaTimestamp()}]`, ...args);
+console.error = (...args: any[]) => originalError(`[${getArgentinaTimestamp()}]`, ...args);
+console.info = (...args: any[]) => originalInfo(`[${getArgentinaTimestamp()}]`, ...args);
+
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = express();
