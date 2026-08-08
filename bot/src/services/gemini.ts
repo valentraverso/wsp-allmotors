@@ -56,17 +56,22 @@ async function fetchGeminiApiKeyFromBackend(): Promise<string> {
                 headers: { 'x-api-key': apiKey },
                 timeout: 8000
             });
-            const dbGeminiKey = res.data?.data?.gemini_api_key || res.data?.gemini_api_key;
+            const dbData = res.data?.data || res.data || {};
+            const dbGeminiKey = dbData.gemini_api_key || dbData.geminiApiKey || dbData.apiKey || dbData.api_key;
             if (dbGeminiKey && typeof dbGeminiKey === 'string' && dbGeminiKey.trim()) {
                 cachedGeminiApiKey = dbGeminiKey.trim();
                 lastApiKeyFetch = Date.now();
                 process.env.GEMINI_API_KEY = cachedGeminiApiKey;
                 console.log(`[Gemini] ✅ API Key de Gemini obtenida exitosamente desde MongoDB (${cachedGeminiApiKey.substring(0, 6)}...).`);
                 return cachedGeminiApiKey;
+            } else {
+                console.warn(`[Gemini Warning] No se encontró gemini_api_key en la respuesta de MongoDB (${JSON.stringify(res.data)}).`);
             }
         } catch (e: any) {
             console.warn(`[Gemini Warning] No se pudo obtener la clave desde la DB (${e.message}). Usando fallback .env`);
         }
+    } else {
+        console.warn(`[Gemini Warning] No hay BACKEND_API_KEY disponible para consultar la DB. Usando fallback .env`);
     }
 
     const envKey = (process.env.GEMINI_API_KEY || "").trim();
