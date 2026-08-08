@@ -38,9 +38,73 @@ function getApiKey(): string {
     return key;
 }
 
-const client = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY || "",
-});
+let cachedGeminiApiKey = "";
+let lastApiKeyFetch = 0;
+
+async function fetchGeminiApiKeyFromBackend(): Promise<string> {
+    if (cachedGeminiApiKey && Date.now() - lastApiKeyFetch < 300000) {
+        return cachedGeminiApiKey;
+    }
+
+    const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+    const apiKey = getApiKey();
+
+    if (apiKey) {
+        try {
+            console.log(`[Gemini] Consultando credenciales de Gemini IA desde MongoDB Backend (${backendUrl}/api/v1/config/gemini_credentials_config)...`);
+            const res = await axios.get(`${backendUrl}/api/v1/config/gemini_credentials_config`, {
+                headers: { 'x-api-key': apiKey },
+                timeout: 8000
+            });
+            const dbGeminiKey = res.data?.data?.gemini_api_key || res.data?.gemini_api_key;
+            if (dbGeminiKey && typeof dbGeminiKey === 'string' && dbGeminiKey.trim()) {
+                cachedGeminiApiKey = dbGeminiKey.trim();
+                lastApiKeyFetch = Date.now();
+                process.env.GEMINI_API_KEY = cachedGeminiApiKey;
+                console.log(`[Gemini] ✅ API Key de Gemini obtenida exitosamente desde MongoDB (${cachedGeminiApiKey.substring(0, 6)}...).`);
+                return cachedGeminiApiKey;
+            }
+        } catch (e: any) {
+            console.warn(`[Gemini Warning] No se pudo obtener la clave desde la DB (${e.message}). Usando fallback .env`);
+        }
+    }
+
+    const envKey = (process.env.GEMINI_API_KEY || "").trim();
+    if (envKey) return envKey;
+
+    try {
+        const envPaths = [
+            path.resolve(process.cwd(), '.env'),
+            path.join(__dirname, '../../.env'),
+            path.join(__dirname, '../../../.env'),
+            '/var/www/wsp/.env',
+            '/var/www/wsp/bot/.env'
+        ];
+        for (const envPath of envPaths) {
+            if (fs.existsSync(envPath)) {
+                const content = fs.readFileSync(envPath, 'utf8');
+                const match = content.match(/GEMINI_API_KEY\s*=\s*["']?([^"'\r\n]+)["']?/);
+                if (match && match[1]) {
+                    const foundKey = match[1].trim();
+                    process.env.GEMINI_API_KEY = foundKey;
+                    return foundKey;
+                }
+            }
+        }
+    } catch (e) {
+        // ignore
+    }
+
+    return "";
+}
+
+async function getGeminiClient(): Promise<GoogleGenAI> {
+    const apiKey = await fetchGeminiApiKeyFromBackend();
+    if (!apiKey) {
+        console.error("[Gemini] ⚠️ CRITICAL ERROR: GEMINI_API_KEY no se encontró en MongoDB ni en .env!");
+    }
+    return new GoogleGenAI({ apiKey });
+}
 
 const SYSTEM_PROMPT_TEMPLATE = `
 Eres el asistente virtual de All Motors, un importante concesionario multimarca en Argentina.
@@ -319,6 +383,7 @@ export class GeminiService {
                 if (i > 0) {
                     console.log(`[Gemini Retry] Intento ${i + 1}/${attempts} tras esperar 2 minutos (${currentModel})...`);
                 }
+                const client = await getGeminiClient();
                 const result = await client.models.generateContent({
                     model: currentModel,
                     contents: contents,
@@ -368,8 +433,6 @@ export class GeminiService {
                     
                     const name = functionCall.name;
                     const args = functionCall.args as any;
-                    
-                    console.log(`[Gemini] Executing Tool: ${name}`, args);
 
                     let functionResult;
                     if (name === "createLead") {
@@ -512,6 +575,7 @@ export class GeminiService {
                     });
                 }
 
+                const client = await getGeminiClient();
                 const finalResult = await client.models.generateContent({
                     model: "gemini-3.6-flash",
                     contents: [
