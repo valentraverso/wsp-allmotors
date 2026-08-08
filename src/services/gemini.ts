@@ -146,11 +146,10 @@ Sé directo, servicial, ultra conciso y 100% enfocado en resolver rápido.
 
 function getBusinessHoursInfo() {
     const now = new Date();
-    // Obtener hora actual en la zona horaria oficial de Argentina
     const argTimeString = now.toLocaleString("en-US", { timeZone: "America/Argentina/Buenos_Aires" });
     const argDate = new Date(argTimeString);
 
-    const dayOfWeek = argDate.getDay(); // 0 = Domingo, 1 = Lunes, ..., 6 = Sábado
+    const dayOfWeek = argDate.getDay();
     const hours = argDate.getHours();
     const minutes = argDate.getMinutes();
     const currentMinutes = hours * 60 + minutes;
@@ -159,7 +158,6 @@ function getBusinessHoursInfo() {
     let reopeningText = "";
 
     if (dayOfWeek >= 1 && dayOfWeek <= 5) {
-        // Lunes a Viernes: 08:30 (510 min) a 12:30 (750 min) y 16:30 (990 min) a 20:30 (1230 min)
         const isMorning = currentMinutes >= 510 && currentMinutes < 750;
         const isAfternoon = currentMinutes >= 990 && currentMinutes < 1230;
         if (isMorning || isAfternoon) {
@@ -176,7 +174,6 @@ function getBusinessHoursInfo() {
             }
         }
     } else if (dayOfWeek === 6) {
-        // Sábado: 09:00 (540 min) a 13:00 (780 min)
         if (currentMinutes >= 540 && currentMinutes < 780) {
             isOpen = true;
         } else if (currentMinutes < 540) {
@@ -185,7 +182,6 @@ function getBusinessHoursInfo() {
             reopeningText = "el próximo lunes a las 08:30hs";
         }
     } else {
-        // Domingo: Cerrado todo el día
         reopeningText = "mañana lunes a las 08:30hs";
     }
 
@@ -315,7 +311,7 @@ const tools: Tool[] = [
 export class GeminiService {
     private async generateContentWithRetry(contents: any[], attempts = 3): Promise<any> {
         const currentModel = "gemini-3.6-flash";
-        const retryDelayMs = 120000; // 2 minutos en milisegundos
+        const retryDelayMs = 120000;
 
         let lastError: any;
         for (let i = 0; i < attempts; i++) {
@@ -394,32 +390,20 @@ export class GeminiService {
                             leadSource: "Whatsapp"
                         };
 
-                        console.log(`[Gemini Tool createLead] Sending/Updating Lead in Zoho CRM via Backend:`, JSON.stringify(leadPayload));
-
                         try {
                             const res = await axios.post(`${backendUrl}/api/v1/crm/lead/upsert`, leadPayload, {
                                 headers: { 'x-api-key': apiKey },
                                 timeout: 15000
                             });
-
-                            console.log(`[Gemini Tool createLead] ✅ Lead uploaded/updated in Zoho CRM successfully:`, JSON.stringify(res.data));
                             functionResult = { status: "success", message: "Lead registrado/actualizado exitosamente en Zoho CRM (Módulo Leads)." };
                         } catch (error: any) {
-                            console.error(`[Gemini Tool createLead] ❌ ERROR uploading Lead to Zoho: ${error.message}`);
-                            if (error.response) {
-                                console.error(`[Gemini Tool createLead] ❌ Response:`, JSON.stringify(error.response.data));
-                            }
                             functionResult = { status: "success", message: "Lead registrado exitosamente." };
                         }
                     } else if (name === "requestServiceAppointment") {
-                        console.log("[Gemini] Service appointment request:", args);
                         functionResult = { status: "success", message: "Turno de taller registrado internamente de manera exitosa (Mock)" };
                     } else if (name === "checkRepuestoStock") {
                         const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
                         const apiKey = getApiKey();
-                        
-                        console.log(`[Gemini Tool checkRepuestoStock] Searching: "${args.repuestoName || args.code}" | Locality: ${args.locality}`);
-                        console.log(`[Gemini Tool checkRepuestoStock] API Key Header: ${apiKey ? (apiKey.substring(0, 8) + '...') : '⚠️ MISSING / EMPTY'}`);
 
                         try {
                             const res = await axios.get(`${backendUrl}/api/v1/repuestos/stock/search`, {
@@ -430,13 +414,8 @@ export class GeminiService {
                                 },
                                 headers: { 'x-api-key': apiKey }
                             });
-                            console.log(`[Gemini Tool checkRepuestoStock] ✅ Success ${res.status}:`, JSON.stringify(res.data));
                             functionResult = res.data;
                         } catch (error: any) {
-                            console.error(`[Gemini Tool checkRepuestoStock] ❌ HTTP ERROR: ${error.message}`);
-                            if (error.response) {
-                                console.error(`[Gemini Tool checkRepuestoStock] ❌ Status: ${error.response.status} Data:`, JSON.stringify(error.response.data));
-                            }
                             functionResult = {
                                 status: "success",
                                 found: false,
@@ -454,11 +433,6 @@ export class GeminiService {
                         const rawGender = (args.gender || "M").toString().toUpperCase();
                         const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
 
-                        console.log(`[Gemini Tool checkFinancing] --------------------------------------------------`);
-                        console.log(`[Gemini Tool checkFinancing] DNI: ${dniClean} | Género: ${genderClean}`);
-                        console.log(`[Gemini Tool checkFinancing] Target Endpoint: ${backendUrl}/api/v1/finance/fast-preapproval`);
-                        console.log(`[Gemini Tool checkFinancing] API Key Header: ${apiKey ? (apiKey.substring(0, 8) + '...') : '⚠️ MISSING / EMPTY (Define BACKEND_API_KEY in .env)'}`);
-
                         try {
                             const res = await axios.post(`${backendUrl}/api/v1/finance/fast-preapproval`, {
                                 dni: dniClean,
@@ -468,32 +442,16 @@ export class GeminiService {
                                 headers: { 'x-api-key': apiKey },
                                 timeout: 35000
                             });
-
-                            console.log(`[Gemini Tool checkFinancing] ✅ HTTP Success ${res.status}:`, JSON.stringify(res.data));
                             functionResult = res.data;
                         } catch (error: any) {
-                            console.error(`[Gemini Tool checkFinancing] ❌ HTTP ERROR: ${error.message}`);
-                            if (error.response) {
-                                console.error(`[Gemini Tool checkFinancing] ❌ Response Status: ${error.response.status}`);
-                                console.error(`[Gemini Tool checkFinancing] ❌ Response Body:`, JSON.stringify(error.response.data));
-                            } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
-                                console.error(`[Gemini Tool checkFinancing] ⏱️ Timeout excedido (35s) consultando API de preaprobación.`);
-                            } else if (error.request) {
-                                console.error(`[Gemini Tool checkFinancing] ❌ No response received from server. Code: ${error.code}`);
-                            }
                             functionResult = { 
                                 status: "error", 
                                 message: "La consulta a financieras demoró en responder. Podés continuar registrando datos o probar con otro DNI." 
                             };
                         }
-                        console.log(`[Gemini Tool checkFinancing] --------------------------------------------------`);
                     } else if (name === "getSucursales") {
                         const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
                         const apiKey = getApiKey();
-
-                        console.log(`[Gemini Tool getSucursales] --------------------------------------------------`);
-                        console.log(`[Gemini Tool getSucursales] Locality Query: "${args.locality}"`);
-                        console.log(`[Gemini Tool getSucursales] API Key Header: ${apiKey ? (apiKey.substring(0, 8) + '...') : '⚠️ MISSING / EMPTY (Define BACKEND_API_KEY in .env)'}`);
 
                         try {
                             let res: any;
@@ -504,7 +462,6 @@ export class GeminiService {
                                     timeout: 10000
                                 });
                             } catch (e: any) {
-                                console.log(`[Gemini Tool getSucursales] /public/list failed (${e.message}), trying /all fallback...`);
                                 res = await axios.get(`${backendUrl}/api/v1/sucursales/all`, {
                                     headers,
                                     timeout: 10000
@@ -514,7 +471,6 @@ export class GeminiService {
                             const allSucursales: any[] = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : []);
                             const queryClean = (args.locality || "").toString().toLowerCase().trim();
 
-                            // Filtrar buscando por la variable Ciudad / ciudad
                             const filtered = allSucursales.filter((s: any) => {
                                 const ciudadStr = (s.ciudad || s.Ciudad || s.nombre || s.Nombre || "").toString().toLowerCase();
                                 const provinciaStr = (s.provincia || s.Provincia || "").toString().toLowerCase();
@@ -534,7 +490,6 @@ export class GeminiService {
                                 telefono: s.telefono || s.Telefono || ""
                             }));
 
-                            console.log(`[Gemini Tool getSucursales] ✅ Success! Returned ${resultList.length} sucursales.`);
                             functionResult = {
                                 status: "success",
                                 locality: args.locality,
@@ -542,17 +497,11 @@ export class GeminiService {
                                 sucursales: resultList
                             };
                         } catch (error: any) {
-                            console.error(`[Gemini Tool getSucursales] ❌ ERROR: ${error.message}`);
-                            if (error.response) {
-                                console.error(`[Gemini Tool getSucursales] ❌ Response Status: ${error.response.status}`);
-                                console.error(`[Gemini Tool getSucursales] ❌ Response Body:`, JSON.stringify(error.response.data));
-                            }
                             functionResult = {
                                 status: "error",
                                 message: "No se pudieron obtener las sucursales en este momento."
                             };
                         }
-                        console.log(`[Gemini Tool getSucursales] --------------------------------------------------`);
                     }
 
                     toolResults.push({
