@@ -38,71 +38,49 @@ function getApiKey(): string {
     return key;
 }
 
-let cachedGeminiApiKey = "";
-let lastApiKeyFetch = 0;
+function getGeminiApiKey(): string {
+    dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+    dotenv.config({ path: path.join(__dirname, '../../.env'), override: true });
+    dotenv.config({ path: '/var/www/wsp/.env', override: true });
 
-async function fetchGeminiApiKeyFromBackend(): Promise<string> {
-    if (cachedGeminiApiKey && Date.now() - lastApiKeyFetch < 300000) {
-        return cachedGeminiApiKey;
-    }
+    let key = (process.env.GEMINI_API_KEY || "").trim();
 
-    const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
-    const apiKey = getApiKey();
-
-    if (apiKey) {
+    if (!key) {
         try {
-            console.log(`[Gemini] Consultando credenciales de Gemini IA desde MongoDB Backend (${backendUrl}/api/v1/config/gemini_credentials_config)...`);
-            const res = await axios.get(`${backendUrl}/api/v1/config/gemini_credentials_config`, {
-                headers: { 'x-api-key': apiKey },
-                timeout: 8000
-            });
-            const dbGeminiKey = res.data?.data?.gemini_api_key || res.data?.gemini_api_key;
-            if (dbGeminiKey && typeof dbGeminiKey === 'string' && dbGeminiKey.trim()) {
-                cachedGeminiApiKey = dbGeminiKey.trim();
-                lastApiKeyFetch = Date.now();
-                process.env.GEMINI_API_KEY = cachedGeminiApiKey;
-                console.log(`[Gemini] ✅ API Key de Gemini obtenida exitosamente desde MongoDB (${cachedGeminiApiKey.substring(0, 6)}...).`);
-                return cachedGeminiApiKey;
-            }
-        } catch (e: any) {
-            console.warn(`[Gemini Warning] No se pudo obtener la clave desde la DB (${e.message}). Usando fallback .env`);
-        }
-    }
-
-    const envKey = (process.env.GEMINI_API_KEY || "").trim();
-    if (envKey) return envKey;
-
-    try {
-        const envPaths = [
-            path.resolve(process.cwd(), '.env'),
-            path.join(__dirname, '../../.env'),
-            path.join(__dirname, '../../../.env'),
-            '/var/www/wsp/.env',
-            '/var/www/wsp/bot/.env'
-        ];
-        for (const envPath of envPaths) {
-            if (fs.existsSync(envPath)) {
-                const content = fs.readFileSync(envPath, 'utf8');
-                const match = content.match(/GEMINI_API_KEY\s*=\s*["']?([^"'\r\n]+)["']?/);
-                if (match && match[1]) {
-                    const foundKey = match[1].trim();
-                    process.env.GEMINI_API_KEY = foundKey;
-                    return foundKey;
+            const envPaths = [
+                path.resolve(process.cwd(), '.env'),
+                path.join(__dirname, '../../.env'),
+                path.join(__dirname, '../../../.env'),
+                '/var/www/wsp/.env',
+                '/var/www/wsp/bot/.env'
+            ];
+            for (const envPath of envPaths) {
+                if (fs.existsSync(envPath)) {
+                    const content = fs.readFileSync(envPath, 'utf8');
+                    const match = content.match(/GEMINI_API_KEY\s*=\s*["']?([^"'\r\n]+)["']?/);
+                    if (match && match[1]) {
+                        key = match[1].trim();
+                        process.env.GEMINI_API_KEY = key;
+                        break;
+                    }
                 }
             }
+        } catch (e) {
+            // ignore
         }
-    } catch (e) {
-        // ignore
     }
 
-    return "";
+    if (key) {
+        console.log(`[Gemini] ✅ API Key de Gemini cargada exitosamente desde .env (${key.substring(0, 6)}...).`);
+    } else {
+        console.error(`[Gemini] ❌ ERROR CRÍTICO: No se encontró GEMINI_API_KEY en el archivo .env! Verificá /var/www/wsp/.env`);
+    }
+
+    return key;
 }
 
-async function getGeminiClient(): Promise<GoogleGenAI> {
-    const apiKey = await fetchGeminiApiKeyFromBackend();
-    if (!apiKey) {
-        console.error("[Gemini] ⚠️ CRITICAL ERROR: GEMINI_API_KEY no se encontró en MongoDB ni en .env!");
-    }
+function getGeminiClient(): GoogleGenAI {
+    const apiKey = getGeminiApiKey();
     return new GoogleGenAI({ apiKey });
 }
 
@@ -383,7 +361,7 @@ export class GeminiService {
                 if (i > 0) {
                     console.log(`[Gemini Retry] Intento ${i + 1}/${attempts} tras esperar 2 minutos (${currentModel})...`);
                 }
-                const client = await getGeminiClient();
+                const client = getGeminiClient();
                 const result = await client.models.generateContent({
                     model: currentModel,
                     contents: contents,
@@ -575,7 +553,7 @@ export class GeminiService {
                     });
                 }
 
-                const client = await getGeminiClient();
+                const client = getGeminiClient();
                 const finalResult = await client.models.generateContent({
                     model: "gemini-3.6-flash",
                     contents: [
