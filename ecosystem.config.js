@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: "wsp-allmotors-internal",
-      script: "dist/index.js",
+      script: "/var/www/wsp/internal/dist/index.js",
       cwd: "/var/www/wsp/internal",
       watch: ["dist"],
       ignore_watch: [
@@ -27,7 +27,7 @@ module.exports = {
     },
     {
       name: "wsp-allmotors-bot",
-      script: "dist/index.js",
+      script: "/var/www/wsp/bot/dist/index.js",
       cwd: "/var/www/wsp/bot",
       watch: ["dist"],
       ignore_watch: [
