@@ -38,9 +38,48 @@ function getApiKey(): string {
     return key;
 }
 
-const client = new GoogleGenAI({
-    apiKey: process.env.GEMINI_API_KEY || "",
-});
+function getGeminiApiKey(): string {
+    dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
+    dotenv.config({ path: path.join(__dirname, '../../.env'), override: true });
+    dotenv.config({ path: '/var/www/wsp/.env', override: true });
+
+    let key = (process.env.GEMINI_API_KEY || "").trim();
+
+    if (!key) {
+        try {
+            const envPaths = [
+                path.resolve(process.cwd(), '.env'),
+                path.join(__dirname, '../../.env'),
+                path.join(__dirname, '../../../.env'),
+                '/var/www/wsp/.env',
+                '/var/www/wsp/bot/.env'
+            ];
+            for (const envPath of envPaths) {
+                if (fs.existsSync(envPath)) {
+                    const content = fs.readFileSync(envPath, 'utf8');
+                    const match = content.match(/GEMINI_API_KEY\s*=\s*["']?([^"'\r\n]+)["']?/);
+                    if (match && match[1]) {
+                        key = match[1].trim();
+                        process.env.GEMINI_API_KEY = key;
+                        break;
+                    }
+                }
+            }
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    return key;
+}
+
+function getGeminiClient(): GoogleGenAI {
+    const apiKey = getGeminiApiKey();
+    if (!apiKey) {
+        console.error("[Gemini] ⚠️ CRITICAL ERROR: GEMINI_API_KEY is missing or empty in .env!");
+    }
+    return new GoogleGenAI({ apiKey });
+}
 
 const SYSTEM_PROMPT_TEMPLATE = `
 Eres el asistente virtual de All Motors, un importante concesionario multimarca en Argentina.
@@ -319,6 +358,7 @@ export class GeminiService {
                 if (i > 0) {
                     console.log(`[Gemini Retry] Intento ${i + 1}/${attempts} tras esperar 2 minutos (${currentModel})...`);
                 }
+                const client = getGeminiClient();
                 const result = await client.models.generateContent({
                     model: currentModel,
                     contents: contents,
@@ -530,6 +570,7 @@ export class GeminiService {
                     });
                 }
 
+                const client = getGeminiClient();
                 const finalResult = await client.models.generateContent({
                     model: "gemini-3.6-flash",
                     contents: [
