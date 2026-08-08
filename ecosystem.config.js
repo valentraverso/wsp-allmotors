@@ -4,7 +4,15 @@ module.exports = {
       name: "wsp-allmotors-internal",
       script: "dist/index.js",
       cwd: "/var/www/wsp/internal",
-      watch: false,
+      watch: ["dist"],
+      ignore_watch: [
+        "node_modules",
+        "auth_info_baileys_internal",
+        "auth_info_baileys_bot",
+        "*.log",
+        ".git"
+      ],
+      watch_delay: 1000,
       autorestart: true,
       max_memory_restart: "1G",
       env: {
@@ -20,7 +28,15 @@ module.exports = {
       name: "wsp-allmotors-bot",
       script: "dist/index.js",
       cwd: "/var/www/wsp/bot",
-      watch: false,
+      watch: ["dist"],
+      ignore_watch: [
+        "node_modules",
+        "auth_info_baileys_internal",
+        "auth_info_baileys_bot",
+        "*.log",
+        ".git"
+      ],
+      watch_delay: 1000,
       autorestart: true,
       max_memory_restart: "1G",
       env: {
