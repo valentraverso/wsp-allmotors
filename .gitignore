@@ -1,7 +1,11 @@
 node_modules/
 dist/
 .env
+internal/.env
+bot/.env
 auth_info_baileys/
+auth_info_baileys_internal/
+auth_info_baileys_bot/
 *.log
 .DS_Store
 

@@ -31,6 +31,7 @@ console.warn = (...args: any[]) => originalWarn(`[${getArgentinaTimestamp()}]`, 
 console.error = (...args: any[]) => originalError(`[${getArgentinaTimestamp()}]`, ...args);
 console.info = (...args: any[]) => originalInfo(`[${getArgentinaTimestamp()}]`, ...args);
 
+dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = express();
