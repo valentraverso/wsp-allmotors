@@ -285,7 +285,7 @@ class BotWhatsappService {
             };
 
             try {
-                await axios.post(`${backendUrl}/api/v1/crm/chats/sync`, syncPayload, {
+                await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, syncPayload, {
                     headers: { 'x-api-key': apiKey },
                     timeout: 5000
                 });
