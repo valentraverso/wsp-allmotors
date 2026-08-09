@@ -96,15 +96,36 @@ MANEJO DE CONVERSACIÓN E INTERRUPCIONES (FLUIDEZ HUMANA):
 - Flexibilidad ante Interrupciones: Si estás recolectando datos y el cliente cambia de tema o pregunta otra cosa, respondé directo y en una sola oración.
 - Variabilidad: Pedí los datos de forma natural y muy breve.
 
-MARCAS Y SERVICIOS:
-- Marcas: Honda, Yamaha, Benelli, Bajaj, KTM, Corven, Motomel, Gilera, Zanella, Keller, Mondial.
+MARCAS Y SERVICIOS: 
+- Marcas: Honda, Yamaha, Bajaj, Corven, Motomel, Gilera, Zanella, Keller, Mondial.
 - Servicios: Venta de 0km, usados, toma de motos usadas como parte de pago, repuestos y servicio técnico oficial.
 
-SUCURSALES DE ATENCIÓN:
-- Santa Fe (Cap.)
-- La Paz (Entre Ríos)
-- Concordia (Entre Ríos)
-- Santa Elena (Entre Ríos)
+PROVINCIAS CON NUESTRAS SUCURSALES:
+- Santa Fe
+- Corrientes
+- Entre Rios
+
+SUCURSALES DE ATENCIÓN SANTA FE:
+- Aristobulo del valle 7100 (Santa Fe Capital, Santa Fe)
+- Boulevard Pellegrini 3300 (Santa Fe Capital, Santa Fe)
+- Blas Parera 8049 (Santa Fe Capital, Santa Fe)
+- Martin Zapata 3086 (Santa Fe Capital, Santa Fe)
+
+SUCURSALES DE ATENCIÓN ENTRE RIOS:
+- Supremo Entrerriano 789 (Gualeguaychu, Entre Rios)
+- Avenida Artigas 2651 (La Paz, Entre Rios)
+- Boulevard San Lorenzo Oeste 318 (Concordia, Entre Rios)
+- Urquiza 1835 (Gualeguaychu, Entre Rios)
+- Avenida Almafuerte 478 (Parana, Entre Rios)
+
+SUCURSALES DE ATENCIÓN CORRIENTES:
+- San Martin 130 (Esquina, Corrientes)
+- San Martin 1550 (Mercedes, Corrientes)
+- Castillo 1160 (Curuzu Cuatia, Corrientes)
+- General Madariaga 1186 (Paso de los libres, Corrientes)
+- Avenida San Luis 1381 (Bella vista, Corrientes)
+- Colon 1897 (Goya, Corrientes)
+- José E. Gómez 1183 (Goya, Corrientes)
 
 REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 
@@ -177,7 +198,7 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
      Facebook: https://www.facebook.com/allmotorsoficial"
 
 7. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (REQUERIMIENTO DE NOMBRE Y APELLIDO)**:
-   - Recolectar Nombre, Apellido, Medio de pago, Ciudad y Provincia. Si te dice solo el primer nombre, solicitá el Apellido antes de ejecutar 'createLead'.
+   - Recolectar Nombre, Apellido, Ciudad y Provincia. Si te dice solo el primer nombre, solicitá el Apellido antes de ejecutar 'createLead'.
    - Teléfono: AUTOMÁTICO desde Baileys. NUNCA SE LO PIDAS AL CLIENTE.
 
 8. **DESPEDIDA Y CORTE ABSOLUTO DE BUCLE DE AGRADECIMIENTOS O EMOJIS**:
@@ -290,7 +311,7 @@ const tools: Tool[] = [
         functionDeclarations: [
             {
                 name: "createLead",
-                description: "Registra un nuevo lead en el módulo Leads de Zoho CRM una vez recolectados los 5 datos esenciales.",
+                description: "Registra un nuevo lead en el módulo Leads de Zoho CRM con origen 'IA' tan pronto se tengan el nombre, apellido y ciudad del cliente (el teléfono se captura automáticamente del chat).",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -316,7 +337,7 @@ const tools: Tool[] = [
                         dni: { type: Type.STRING, description: "Número de DNI del cliente principal que realiza la consulta" },
                         availableAmount: { type: Type.STRING, description: "Monto total preaprobado de crédito en las financieras para el DNI del cliente (ej. 1500000 o 2000000)" }
                     },
-                    required: ["firstName", "lastName", "paymentMethod", "city", "state", "interest"]
+                    required: ["firstName", "lastName", "city"]
                 }
             },
             {
@@ -459,7 +480,7 @@ function getCleanBackendUrl(): string {
                             interest: args.interest,
                             dni: args.dni || "",
                             availableAmount: args.availableAmount || null,
-                            leadSource: "Whatsapp"
+                            leadSource: "IA"
                         };
 
                         console.log(`[Gemini Tool createLead] Sending/Updating Lead in Zoho CRM via Backend:`, JSON.stringify(leadPayload));
