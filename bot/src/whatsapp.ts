@@ -313,9 +313,9 @@ class BotWhatsappService {
             });
 
             if (aiResponse.text && aiResponse.text.trim()) {
-                // Retardo aleatorio humano entre 40s y 5min
-                const minDelay = 40000;
-                const maxDelay = 300000;
+                // Retardo aleatorio humano entre 20s y 2min (máximo 2 minutos)
+                const minDelay = 20000;
+                const maxDelay = 120000;
                 const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
                 const delaySeconds = Math.round(randomDelay / 1000);
                 console.log(`[WSP BOT Delay] Espera humana de ${delaySeconds}s (${(delaySeconds / 60).toFixed(1)} min) antes de enviar a ${senderNumber}...`);
