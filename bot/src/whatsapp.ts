@@ -248,6 +248,9 @@ class BotWhatsappService {
                     if (activeRes.data.data.conversation) {
                         conversationId = activeRes.data.data.conversation.conversationId;
                     }
+                    console.log(`[WSP BOT LeadProfile] 🟢 Ficha de perfil inyectada para ${queryTarget}:`, JSON.stringify(leadProfile));
+                } else {
+                    console.log(`[WSP BOT LeadProfile] ⚠️ Sin ficha previa devuelta desde DB para ${queryTarget}`);
                 }
             } catch (e) {
                 // ignore

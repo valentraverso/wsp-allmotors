@@ -284,11 +284,12 @@ function buildSystemPrompt(leadProfile?: any): string {
     if (leadProfile) {
         let profileText = `\n\n[FICHA DE PERFIL DEL CLIENTE ALMACENADA EN DATABASE]\n`;
         const effectiveName = (leadProfile.firstName ? `${leadProfile.firstName} ${leadProfile.lastName || ''}`.trim() : (leadProfile.fullName || leadProfile.pushName || '')).trim();
-        if (effectiveName) profileText += `- Nombre registrado del cliente: ${effectiveName}\n`;
-        if (leadProfile.city) profileText += `- Ciudad: ${leadProfile.city}\n`;
-        if (leadProfile.state) profileText += `- Provincia: ${leadProfile.state}\n`;
-        if (leadProfile.dni) profileText += `- DNI: ${leadProfile.dni}\n`;
-        if (leadProfile.interest) profileText += `- Moto de Interés: ${leadProfile.interest}\n`;
+        
+        profileText += `- Nombre registrado del cliente: "${effectiveName || 'Sin registrar'}"\n`;
+        profileText += `- Ciudad: "${leadProfile.city || 'Sin registrar'}"\n`;
+        profileText += `- Provincia: "${leadProfile.state || 'Sin registrar'}"\n`;
+        profileText += `- DNI: "${leadProfile.dni || 'Sin registrar'}"\n`;
+        profileText += `- Moto de Interés: "${leadProfile.interest || 'Sin registrar'}"\n`;
         if (leadProfile.garantes && leadProfile.garantes.length > 0) {
             profileText += `- Garantes registrados: ${JSON.stringify(leadProfile.garantes)}\n`;
         }
@@ -296,15 +297,18 @@ function buildSystemPrompt(leadProfile?: any): string {
             profileText += `- Evaluación Crediticia Previa: ${JSON.stringify(leadProfile.overallCreditStatus)}\n`;
         }
 
-        profileText += `\nREGLAS OBLIGATORIAS DE MEMORIA Y RESPUESTA DE DATOS:
-1. SI CONOCES EL NOMBRE DEL CLIENTE (${effectiveName || 'registrado'}):
-   - Si el cliente te pregunta "¿sabes mi nombre?", "¿cómo me llamo?", "¿cuál es mi nombre?" o similar, DEBES RESPONDER INMEDIATAMENTE CONFIRMANDO SU NOMBRE (ejemplo: "¡Sí! Te llamás ${effectiveName.split(' ')[0]}").
-   - TIENES ESTRICTAMENTE PROHIBIDO decir "No me lo dijiste todavía" o pedirle su nombre/apellido si ya figura "${effectiveName}" en la Ficha superior.
-2. SI EL CLIENTE TE PREGUNTA "¿QUÉ INFORMACIÓN MÍA TENÉS?", "¿QUÉ DATOS MÍOS TENÉS?", "¿QUÉ SABÉS DE MÍ?" O SIMILAR:
-   - DEBES RESPONDER CONFIRMANDO TODOS LOS DATOS REGISTRADOS EN SU FICHA SUPERIOR (ejemplo: "Tengo registrado que tu nombre es ${effectiveName}${leadProfile.city ? `, sos de ${leadProfile.city}` : ''}${leadProfile.dni ? `, tu DNI es ${leadProfile.dni}` : ''}${leadProfile.interest ? ` y estás interesado en ${leadProfile.interest}` : ''}").
-   - TIENES ESTRICTAMENTE PROHIBIDO responder "No tengo ninguna información tuya guardada" cuando la ficha superior contenga sus datos.
-3. ¡PROHIBIDO pedirle datos que ya se encuentran registrados en la ficha superior! Si ya tienes su Nombre o Ciudad o DNI, no vuelvas a preguntárselo y avanza directo con la atención.
-4. REGLA OBLIGATORIA DE CIUDAD Y PROVINCIA: Siempre que recolectes la Ciudad del cliente (ej: "Santa Fe", "Concordia", "Paraná", "Gualeguaychú", "Goya", "Rosario"), NUNCA la guardes sola. SIEMPRE debes incluir también su Provincia correspondiente en la llamada a 'createLead' (ej: 'Santa Fe', 'Entre Ríos', 'Corrientes', 'Chaco', 'Córdoba').`;
+        profileText += `\nREGLAS ABSOLUTAS Y OBLIGATORIAS DE MEMORIA Y DATOS REGISTRADOS:
+1. RESPUESTA OBLIGATORIA SI EL CLIENTE TE PREGUNTA "¿QUÉ INFORMACIÓN MÍA TENÉS?", "¿QUÉ DATOS MÍOS TENÉS?", "¿QUÉ SABÉS DE MÍ?", "¿SABÉS MI NOMBRE?" O SIMILAR:
+   - DEBES RESPONDER CONFIRMANDO EXACTAMENTE LOS DATOS QUE YA TIENES GUARDADOS EN LA LISTA ANTERIOR.
+   - EJEMPLO SI SOLO TENES SU NOMBRE ("${effectiveName}"): "¡Sí! Por el momento tengo registrado tu nombre: ${effectiveName}. ¿Me contás de qué ciudad sos o qué moto te interesa así te paso toda la info?"
+   - EJEMPLO SI TENES NOMBRE Y CIUDAD: "Tengo registrado que te llamás ${effectiveName}${leadProfile.city ? ` y sos de ${leadProfile.city}` : ''}."
+   - ¡TIENES ESTRICTAMENTE PROHIBIDO RESPONDER "Por ahora ninguna", "No tengo ninguna información tuya guardada", "No me lo dijiste todavía" O SIMILARI! Si tienes su nombre "${effectiveName}" o cualquier otro dato en la lista superior, NUNCA digas que no tienes información tuya.
+
+2. PROHIBICIÓN DE REPETIR PREGUNTAS SOBRE DATOS GUARDADOS:
+   - ¡PROHIBIDO volver a pedir su Nombre o Apellido si ya figura "${effectiveName}" arriba!
+   ${leadProfile.city ? `- ¡PROHIBIDO volver a pedir su Ciudad si ya figura "${leadProfile.city}" arriba!\n` : ''}
+   ${leadProfile.dni ? `- ¡PROHIBIDO volver a pedir su DNI si ya figura "${leadProfile.dni}" arriba!\n` : ''}
+`;
 
         prompt += profileText;
     }
