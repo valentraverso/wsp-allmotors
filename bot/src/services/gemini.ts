@@ -296,8 +296,10 @@ function buildSystemPrompt(leadProfile?: any): string {
             profileText += `- Evaluación Crediticia Previa: ${JSON.stringify(leadProfile.overallCreditStatus)}\n`;
         }
 
-        profileText += `\nREGLAS OBLIGATORIAS DE MEMORIA:
-1. Si conoces el Nombre del cliente (${effectiveName || 'registrado'}), llámalo siempre por su nombre de forma empática (ej: "Hola ${effectiveName.split(' ')[0]}, ¿cómo estás?"). Si te pregunta cuál es su nombre o si sabes cómo se llama, respóndele directamente confirmando que sabes que su nombre es ${effectiveName}.
+        profileText += `\nREGLAS OBLIGATORIAS DE MEMORIA Y NOMBRE DEL CLIENTE:
+1. SI CONOCES EL NOMBRE DEL CLIENTE (${effectiveName || 'registrado'}):
+   - Si el cliente te pregunta "¿sabes mi nombre?", "¿cómo me llamo?", "¿cuál es mi nombre?" o similar, DEBES RESPONDER INMEDIATAMENTE CONFIRMANDO SU NOMBRE COMPLETO O PRIMER NOMBRE (ejemplo: "¡Sí! Te llamás ${effectiveName.split(' ')[0]}").
+   - TIENES ESTRICTAMENTE PROHIBIDO decir "No me lo dijiste todavía" o pedirle su nombre/apellido si ya figura "${effectiveName}" en la Ficha de Perfil del Cliente superior. Ignora cualquier mensaje previo donde por error se haya dicho que no se sabía su nombre.
 2. ¡PROHIBIDO pedirle datos que ya se encuentran registrados en la ficha superior! Si ya tienes su Nombre o Ciudad o DNI, no vuelvas a preguntárselo y avanza directo con la atención.`;
 
         prompt += profileText;
