@@ -300,7 +300,8 @@ function buildSystemPrompt(leadProfile?: any): string {
 1. SI CONOCES EL NOMBRE DEL CLIENTE (${effectiveName || 'registrado'}):
    - Si el cliente te pregunta "¿sabes mi nombre?", "¿cómo me llamo?", "¿cuál es mi nombre?" o similar, DEBES RESPONDER INMEDIATAMENTE CONFIRMANDO SU NOMBRE COMPLETO O PRIMER NOMBRE (ejemplo: "¡Sí! Te llamás ${effectiveName.split(' ')[0]}").
    - TIENES ESTRICTAMENTE PROHIBIDO decir "No me lo dijiste todavía" o pedirle su nombre/apellido si ya figura "${effectiveName}" en la Ficha de Perfil del Cliente superior. Ignora cualquier mensaje previo donde por error se haya dicho que no se sabía su nombre.
-2. ¡PROHIBIDO pedirle datos que ya se encuentran registrados en la ficha superior! Si ya tienes su Nombre o Ciudad o DNI, no vuelvas a preguntárselo y avanza directo con la atención.`;
+2. ¡PROHIBIDO pedirle datos que ya se encuentran registrados en la ficha superior! Si ya tienes su Nombre o Ciudad o DNI, no vuelvas a preguntárselo y avanza directo con la atención.
+3. REGLA OBLIGATORIA DE CIUDAD Y PROVINCIA: Siempre que recolectes la Ciudad del cliente (ej: "Santa Fe", "Concordia", "Paraná", "Gualeguaychú", "Goya", "Rosario"), NUNCA la guardes sola. SIEMPRE debes incluir también su Provincia correspondiente en la llamada a 'createLead' (ej: 'Santa Fe', 'Entre Ríos', 'Corrientes', 'Chaco', 'Córdoba').`;
 
         prompt += profileText;
     }
@@ -334,12 +335,12 @@ const tools: Tool[] = [
                             description: "Medio de pago u opción de financiación exacta de Zoho CRM: 'Efectivo', 'Tarjeta de credito', 'Recibo de sueldo', 'Entrega + Tarjeta', 'Entrega + Recibo', 'Entrega + DNI', 'Otro', 'DNI'" 
                         },
                         city: { type: Type.STRING, description: "Ciudad o localidad del cliente" },
-                        state: { type: Type.STRING, description: "Provincia del cliente (deducida o preguntada si la ciudad aplica a varias provincias)" },
+                        state: { type: Type.STRING, description: "Provincia del cliente (OBLIGATORIA al guardar la ciudad. Deduce la provincia según la ciudad, ej: Santa Fe -> Santa Fe, Concordia/Paraná/Gualeguaychú -> Entre Ríos, Goya -> Corrientes, Resistencia -> Chaco, Córdoba -> Córdoba, etc.)" },
                         interest: { type: Type.STRING, description: "Marca, modelo, cilindrada o estilo de moto en el que está interesado el cliente" },
                         dni: { type: Type.STRING, description: "Número de DNI del cliente principal que realiza la consulta" },
                         availableAmount: { type: Type.STRING, description: "Monto total preaprobado de crédito en las financieras para el DNI del cliente (ej. 1500000 o 2000000)" }
                     },
-                    required: ["firstName", "lastName", "city"]
+                    required: ["firstName", "lastName", "city", "state"]
                 }
             },
             {
