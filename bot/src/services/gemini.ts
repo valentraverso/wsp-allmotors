@@ -392,6 +392,17 @@ const tools: Tool[] = [
                     },
                     required: ["locality"]
                 }
+            },
+            {
+                name: "getClientProfile",
+                description: "Consulta en la base de datos MongoDB el perfil del cliente (nombre, apellido, ciudad, dni, evaluación crediticia) por su teléfono, JID o DNI para verificar sus datos guardados.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        phoneOrDni: { type: Type.STRING, description: "Número de teléfono, JID o DNI del cliente si se conoce" }
+                    },
+                    required: []
+                }
             }
         ]
     }
@@ -614,6 +625,26 @@ function getCleanBackendUrl(): string {
                                 status: "error",
                                 message: "No se pudieron obtener las sucursales en este momento."
                             };
+                        }
+                    } else if (name === "getClientProfile") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
+                        const target = args.phoneOrDni || senderJid || senderNumber;
+                        console.log(`[Gemini Tool getClientProfile] Querying DB for target: ${target}`);
+                        try {
+                            const res = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${encodeURIComponent(target)}`, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 5000
+                            });
+                            const foundLead = res.data?.data?.lead;
+                            if (foundLead) {
+                                console.log(`[Gemini Tool getClientProfile] ✅ Found lead profile:`, JSON.stringify(foundLead));
+                                functionResult = { status: "success", lead: foundLead };
+                            } else {
+                                functionResult = { status: "success", lead: null, message: "No hay ficha registrada previa para este cliente." };
+                            }
+                        } catch (error: any) {
+                            functionResult = { status: "error", message: `Error consultando perfil: ${error.message}` };
                         }
                     }
 
