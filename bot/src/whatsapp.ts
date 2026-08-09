@@ -238,22 +238,34 @@ class BotWhatsappService {
 
             // 1. Obtener perfil del Lead y sesión activa desde DB
             try {
-                const queryTarget = senderJid || senderNumber;
-                const activeRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${encodeURIComponent(queryTarget)}`, {
-                    headers: { 'x-api-key': apiKey },
-                    timeout: 5000
-                });
-                if (activeRes.data && activeRes.data.data) {
-                    leadProfile = activeRes.data.data.lead;
-                    if (activeRes.data.data.conversation) {
-                        conversationId = activeRes.data.data.conversation.conversationId;
+                const queryTargets = [senderJid, senderNumber].filter(Boolean);
+                for (const target of queryTargets) {
+                    try {
+                        const activeRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${encodeURIComponent(target)}`, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 5000
+                        });
+                        if (activeRes.data && activeRes.data.data) {
+                            if (activeRes.data.data.lead) {
+                                leadProfile = activeRes.data.data.lead;
+                            }
+                            if (activeRes.data.data.conversation) {
+                                conversationId = activeRes.data.data.conversation.conversationId;
+                            }
+                            if (leadProfile) break;
+                        }
+                    } catch (targetErr: any) {
+                        console.warn(`[WSP BOT LeadProfile Warning] Error consultando target ${target}: ${targetErr.message}`);
                     }
-                    console.log(`[WSP BOT LeadProfile] 🟢 Ficha de perfil inyectada para ${queryTarget}:`, JSON.stringify(leadProfile));
-                } else {
-                    console.log(`[WSP BOT LeadProfile] ⚠️ Sin ficha previa devuelta desde DB para ${queryTarget}`);
                 }
-            } catch (e) {
-                // ignore
+
+                if (leadProfile) {
+                    console.log(`[WSP BOT LeadProfile] 🟢 Ficha de perfil inyectada para ${senderJid} (${senderNumber}):`, JSON.stringify(leadProfile));
+                } else {
+                    console.log(`[WSP BOT LeadProfile] ⚠️ Sin ficha previa devuelta desde DB para ${senderJid} (${senderNumber})`);
+                }
+            } catch (e: any) {
+                console.error(`[WSP BOT LeadProfile Error] ❌ Error general obteniendo perfil para ${senderJid}: ${e.message}`);
             }
 
             let state = userStates.get(senderJid);
