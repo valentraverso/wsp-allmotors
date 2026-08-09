@@ -296,12 +296,15 @@ function buildSystemPrompt(leadProfile?: any): string {
             profileText += `- Evaluación Crediticia Previa: ${JSON.stringify(leadProfile.overallCreditStatus)}\n`;
         }
 
-        profileText += `\nREGLAS OBLIGATORIAS DE MEMORIA Y NOMBRE DEL CLIENTE:
+        profileText += `\nREGLAS OBLIGATORIAS DE MEMORIA Y RESPUESTA DE DATOS:
 1. SI CONOCES EL NOMBRE DEL CLIENTE (${effectiveName || 'registrado'}):
-   - Si el cliente te pregunta "¿sabes mi nombre?", "¿cómo me llamo?", "¿cuál es mi nombre?" o similar, DEBES RESPONDER INMEDIATAMENTE CONFIRMANDO SU NOMBRE COMPLETO O PRIMER NOMBRE (ejemplo: "¡Sí! Te llamás ${effectiveName.split(' ')[0]}").
-   - TIENES ESTRICTAMENTE PROHIBIDO decir "No me lo dijiste todavía" o pedirle su nombre/apellido si ya figura "${effectiveName}" en la Ficha de Perfil del Cliente superior. Ignora cualquier mensaje previo donde por error se haya dicho que no se sabía su nombre.
-2. ¡PROHIBIDO pedirle datos que ya se encuentran registrados en la ficha superior! Si ya tienes su Nombre o Ciudad o DNI, no vuelvas a preguntárselo y avanza directo con la atención.
-3. REGLA OBLIGATORIA DE CIUDAD Y PROVINCIA: Siempre que recolectes la Ciudad del cliente (ej: "Santa Fe", "Concordia", "Paraná", "Gualeguaychú", "Goya", "Rosario"), NUNCA la guardes sola. SIEMPRE debes incluir también su Provincia correspondiente en la llamada a 'createLead' (ej: 'Santa Fe', 'Entre Ríos', 'Corrientes', 'Chaco', 'Córdoba').`;
+   - Si el cliente te pregunta "¿sabes mi nombre?", "¿cómo me llamo?", "¿cuál es mi nombre?" o similar, DEBES RESPONDER INMEDIATAMENTE CONFIRMANDO SU NOMBRE (ejemplo: "¡Sí! Te llamás ${effectiveName.split(' ')[0]}").
+   - TIENES ESTRICTAMENTE PROHIBIDO decir "No me lo dijiste todavía" o pedirle su nombre/apellido si ya figura "${effectiveName}" en la Ficha superior.
+2. SI EL CLIENTE TE PREGUNTA "¿QUÉ INFORMACIÓN MÍA TENÉS?", "¿QUÉ DATOS MÍOS TENÉS?", "¿QUÉ SABÉS DE MÍ?" O SIMILAR:
+   - DEBES RESPONDER CONFIRMANDO TODOS LOS DATOS REGISTRADOS EN SU FICHA SUPERIOR (ejemplo: "Tengo registrado que tu nombre es ${effectiveName}${leadProfile.city ? `, sos de ${leadProfile.city}` : ''}${leadProfile.dni ? `, tu DNI es ${leadProfile.dni}` : ''}${leadProfile.interest ? ` y estás interesado en ${leadProfile.interest}` : ''}").
+   - TIENES ESTRICTAMENTE PROHIBIDO responder "No tengo ninguna información tuya guardada" cuando la ficha superior contenga sus datos.
+3. ¡PROHIBIDO pedirle datos que ya se encuentran registrados en la ficha superior! Si ya tienes su Nombre o Ciudad o DNI, no vuelvas a preguntárselo y avanza directo con la atención.
+4. REGLA OBLIGATORIA DE CIUDAD Y PROVINCIA: Siempre que recolectes la Ciudad del cliente (ej: "Santa Fe", "Concordia", "Paraná", "Gualeguaychú", "Goya", "Rosario"), NUNCA la guardes sola. SIEMPRE debes incluir también su Provincia correspondiente en la llamada a 'createLead' (ej: 'Santa Fe', 'Entre Ríos', 'Corrientes', 'Chaco', 'Córdoba').`;
 
         prompt += profileText;
     }

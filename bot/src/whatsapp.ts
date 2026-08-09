@@ -163,6 +163,26 @@ class BotWhatsappService {
 
                     if (!textMessage.trim()) continue;
 
+                    // Sincronizar inmediatamente a DB con estado PENDIENTE apenas ingresa el mensaje
+                    try {
+                        const backendUrl = this.getCleanBackendUrl();
+                        const apiKey = getApiKey();
+                        await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                            jid: senderJid,
+                            phone: senderNumber,
+                            pushName: msg.pushName || "",
+                            replyStatus: 'PENDIENTE',
+                            lastMessage: textMessage.trim(),
+                            updatedAt: new Date()
+                        }, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 5000
+                        });
+                        console.log(`[WSP BOT Sync] 🟢 Mensaje de ${senderNumber} registrado inmediatamente en DB con estado PENDIENTE`);
+                    } catch (syncErr: any) {
+                        // ignore non-critical sync errors
+                    }
+
                     // Agrupación ráfaga (Debounce 30s)
                     const existingBatch = userMessageBatches.get(senderJid);
                     if (existingBatch) {
