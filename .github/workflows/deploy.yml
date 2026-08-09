@@ -6,12 +6,24 @@ on:
       - main
 
 jobs:
-  deploy:
-    name: 📱 Deploy WSP
+  build-and-deploy:
+    name: 📱 Build & Deploy WSP
     runs-on: ubuntu-latest
     steps:
       - name: 📥 Clonar repositorio
         uses: actions/checkout@v4
+
+      - name: 🛠️ Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 📦 Instalar dependencias y Compilar (Bot e Interno)
+        run: |
+          npm install --no-audit --no-fund
+          cd internal && npm install --no-audit --no-fund && npm run build && cd ..
+          cd bot && npm install --no-audit --no-fund && npm run build && cd ..
 
       - name: 📤 Enviar archivos por SSH (SCP)
         uses: appleboy/scp-action@v0.1.4
@@ -23,7 +35,7 @@ jobs:
           target: "/var/www/wsp"
           rm: false
 
-      - name: 🔄 Levantar / Reiniciar PM2
+      - name: 🔄 Compilar y Reiniciar PM2 en VPS
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -34,5 +46,8 @@ jobs:
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             cd /var/www/wsp
             npm install --no-audit --no-fund
+            cd internal && npm install --no-audit --no-fund && npm run build && cd ..
+            cd bot && npm install --no-audit --no-fund && npm run build && cd ..
             pm2 restart ecosystem.config.js --update-env || pm2 start ecosystem.config.js
             pm2 save
+
