@@ -218,7 +218,8 @@ class BotWhatsappService {
 
             // 1. Obtener perfil del Lead y sesión activa desde DB
             try {
-                const activeRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${senderNumber}`, {
+                const queryTarget = senderJid || senderNumber;
+                const activeRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${encodeURIComponent(queryTarget)}`, {
                     headers: { 'x-api-key': apiKey },
                     timeout: 5000
                 });
