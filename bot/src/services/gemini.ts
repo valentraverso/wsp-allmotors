@@ -262,7 +262,8 @@ function buildSystemPrompt(leadProfile?: any): string {
 
     if (leadProfile) {
         let profileText = `\n\n[FICHA DE PERFIL DEL CLIENTE ALMACENADA EN DATABASE]\n`;
-        if (leadProfile.firstName) profileText += `- Nombre: ${leadProfile.firstName} ${leadProfile.lastName || ''}\n`;
+        const effectiveName = (leadProfile.firstName ? `${leadProfile.firstName} ${leadProfile.lastName || ''}`.trim() : (leadProfile.fullName || leadProfile.pushName || '')).trim();
+        if (effectiveName) profileText += `- Nombre registrado del cliente: ${effectiveName}\n`;
         if (leadProfile.city) profileText += `- Ciudad: ${leadProfile.city}\n`;
         if (leadProfile.state) profileText += `- Provincia: ${leadProfile.state}\n`;
         if (leadProfile.dni) profileText += `- DNI: ${leadProfile.dni}\n`;
@@ -275,7 +276,7 @@ function buildSystemPrompt(leadProfile?: any): string {
         }
 
         profileText += `\nREGLAS OBLIGATORIAS DE MEMORIA:
-1. Si ya conoces el Nombre del cliente (${leadProfile.firstName || 'registrado'}), llámalo siempre por su nombre de forma empática (ej: "Hola ${leadProfile.firstName || ''}, ¿cómo estás?").
+1. Si conoces el Nombre del cliente (${effectiveName || 'registrado'}), llámalo siempre por su nombre de forma empática (ej: "Hola ${effectiveName.split(' ')[0]}, ¿cómo estás?"). Si te pregunta cuál es su nombre o si sabes cómo se llama, respóndele directamente confirmando que sabes que su nombre es ${effectiveName}.
 2. ¡PROHIBIDO pedirle datos que ya se encuentran registrados en la ficha superior! Si ya tienes su Nombre o Ciudad o DNI, no vuelvas a preguntárselo y avanza directo con la atención.`;
 
         prompt += profileText;
