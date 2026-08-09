@@ -239,7 +239,7 @@ function getBusinessHoursInfo() {
     };
 }
 
-function buildSystemPrompt(): string {
+function buildSystemPrompt(leadProfile?: any): string {
     const hoursInfo = getBusinessHoursInfo();
 
     const scheduleBlock = `
@@ -258,7 +258,30 @@ function buildSystemPrompt(): string {
        2. **SI EL CLIENTE PREGUNTA EXPLÍCITAMENTE CUÁNDO SE LO CONTACTA O SI ATIENDEN AHORA**: Si pregunta "¿cuándo me contactan?", "¿cuándo me mandan?", "¿están abiertos?", "¿atienden ahora?" o consulta nuestros horarios.
 `;
 
-    return SYSTEM_PROMPT_TEMPLATE + "\n" + scheduleBlock;
+    let prompt = SYSTEM_PROMPT_TEMPLATE + "\n" + scheduleBlock;
+
+    if (leadProfile) {
+        let profileText = `\n\n[FICHA DE PERFIL DEL CLIENTE ALMACENADA EN DATABASE]\n`;
+        if (leadProfile.firstName) profileText += `- Nombre: ${leadProfile.firstName} ${leadProfile.lastName || ''}\n`;
+        if (leadProfile.city) profileText += `- Ciudad: ${leadProfile.city}\n`;
+        if (leadProfile.state) profileText += `- Provincia: ${leadProfile.state}\n`;
+        if (leadProfile.dni) profileText += `- DNI: ${leadProfile.dni}\n`;
+        if (leadProfile.interest) profileText += `- Moto de Interés: ${leadProfile.interest}\n`;
+        if (leadProfile.garantes && leadProfile.garantes.length > 0) {
+            profileText += `- Garantes registrados: ${JSON.stringify(leadProfile.garantes)}\n`;
+        }
+        if (leadProfile.overallCreditStatus) {
+            profileText += `- Evaluación Crediticia Previa: ${JSON.stringify(leadProfile.overallCreditStatus)}\n`;
+        }
+
+        profileText += `\nREGLAS OBLIGATORIAS DE MEMORIA:
+1. Si ya conoces el Nombre del cliente (${leadProfile.firstName || 'registrado'}), llámalo siempre por su nombre de forma empática (ej: "Hola ${leadProfile.firstName || ''}, ¿cómo estás?").
+2. ¡PROHIBIDO pedirle datos que ya se encuentran registrados en la ficha superior! Si ya tienes su Nombre o Ciudad o DNI, no vuelvas a preguntárselo y avanza directo con la atención.`;
+
+        prompt += profileText;
+    }
+
+    return prompt;
 }
 
 const tools: Tool[] = [
@@ -351,9 +374,9 @@ const tools: Tool[] = [
 ];
 
 export class GeminiService {
-    private async generateContentWithRetry(contents: any[], attempts = 3): Promise<any> {
+    private async generateContentWithRetry(contents: any[], leadProfile?: any, attempts = 3): Promise<any> {
         const currentModel = "gemini-3.6-flash";
-        const retryDelayMs = 120000; // 2 minutos en milisegundos
+        const retryDelayMs = 120000;
 
         let lastError: any;
         for (let i = 0; i < attempts; i++) {
@@ -366,7 +389,7 @@ export class GeminiService {
                     model: currentModel,
                     contents: contents,
                     config: {
-                        systemInstruction: buildSystemPrompt(),
+                        systemInstruction: buildSystemPrompt(leadProfile),
                         tools: tools,
                     }
                 });
@@ -389,14 +412,14 @@ export class GeminiService {
         throw lastError;
     }
 
-    async chat(message: string, history: any[] = [], senderNumber: string = "", senderJid: string = "") {
+    async chat(message: string, history: any[] = [], senderNumber: string = "", senderJid: string = "", leadProfile?: any) {
         try {
             const contentsPayload = [
                 ...history,
                 { role: "user", parts: [{ text: message }] }
             ];
 
-            const result = await this.generateContentWithRetry(contentsPayload);
+            const result = await this.generateContentWithRetry(contentsPayload, leadProfile);
 
             const candidate = result.candidates?.[0];
             let content = candidate?.content?.parts?.[0]?.text || "";

@@ -125,6 +125,7 @@ class BotWhatsappService {
                     this.qr = null;
                     this.isInitializing = false;
                     console.log(`✓ [WSP BOT] WhatsApp Commercial AI Bot connected successfully!`);
+                    setTimeout(() => this.recoverPendingConversations(), 5000);
                 }
             });
 
@@ -210,14 +211,32 @@ class BotWhatsappService {
 
     private async handleIncomingMessage(senderJid: string, senderNumber: string, combinedText: string, msg: any) {
         try {
+            const backendUrl = this.getCleanBackendUrl();
+            const apiKey = getApiKey();
+            let leadProfile: any = null;
+            let conversationId: string | undefined = undefined;
+
+            // 1. Obtener perfil del Lead y sesión activa desde DB
+            try {
+                const activeRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${senderNumber}`, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 5000
+                });
+                if (activeRes.data && activeRes.data.data) {
+                    leadProfile = activeRes.data.data.lead;
+                    if (activeRes.data.data.conversation) {
+                        conversationId = activeRes.data.data.conversation.conversationId;
+                    }
+                }
+            } catch (e) {
+                // ignore
+            }
+
             let state = userStates.get(senderJid);
 
             // Hidratar historial desde backend si no existe en RAM
             if (!state || !state.history || state.history.length === 0) {
-                const backendUrl = this.getCleanBackendUrl();
-                const apiKey = getApiKey();
                 let loadedHistory: any[] = [];
-
                 try {
                     const chatRes = await axios.get(`${backendUrl}/api/v1/crm/chats/${encodeURIComponent(senderJid)}`, {
                         headers: { 'x-api-key': apiKey },
@@ -241,6 +260,25 @@ class BotWhatsappService {
 
             const history = state.history || [];
 
+            // 2. Marcar estado como PENDIENTE en DB al recibir mensaje
+            const syncUrl = `${backendUrl}/api/v1/crm/chat/sync`;
+            try {
+                await axios.post(syncUrl, {
+                    jid: senderJid,
+                    phone: senderNumber,
+                    pushName: msg.pushName || "",
+                    conversationId,
+                    replyStatus: 'PENDIENTE',
+                    lastMessage: combinedText,
+                    updatedAt: new Date()
+                }, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 5000
+                });
+            } catch (err: any) {
+                // ignore
+            }
+
             // Corte de bucle de cortesía / emojis
             const isOnlyCourtesyOrEmoji = (text: string): boolean => {
                 const cleaned = text.trim().toLowerCase().replace(/[^\w\s]/gi, '');
@@ -248,6 +286,14 @@ class BotWhatsappService {
                 const isPureEmoji = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s\d👍🙌😊]*$/u.test(text.trim());
                 return isPureEmoji || (cleaned.length < 25 && courtesyWords.some(w => cleaned.includes(w)));
             };
+
+            // Detección de indicios de cierre de conversación
+            const isGoodbyeSignal = (text: string): boolean => {
+                const cleaned = text.trim().toLowerCase();
+                const goodbyeWords = ['hablamos mañana', 'hasta mañana', 'nos vemos mañana', 'chau', 'chau gracias', 'muchas gracias chau', 'nada mas', 'nada más', 'no necesito nada mas', 'no por ahora'];
+                return goodbyeWords.some(w => cleaned.includes(w));
+            };
+            const isClosedSession = isGoodbyeSignal(combinedText);
 
             const lastHistoryMsg = history.length > 0 ? history[history.length - 1] : null;
             const lastBotText = lastHistoryMsg && lastHistoryMsg.role === 'model' ? (lastHistoryMsg.parts?.[0]?.text || '').toLowerCase() : '';
@@ -257,7 +303,8 @@ class BotWhatsappService {
                 return;
             }
 
-            const aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid);
+            // 3. Generar respuesta de Gemini inyectando perfil del cliente
+            const aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid, leadProfile);
 
             userStates.set(senderJid, {
                 step: 'CHATTING',
@@ -276,16 +323,18 @@ class BotWhatsappService {
                 await new Promise(resolve => setTimeout(resolve, randomDelay));
                 await this.sendMessage(senderJid, aiResponse.text.trim());
             }
-            // Sincronizar conversación en MongoDB
-            const backendUrl = this.getCleanBackendUrl();
-            const apiKey = getApiKey();
-            const syncUrl = `${backendUrl}/api/v1/crm/chat/sync`;
+
+            // 4. Marcar estado como ATENDIDO y actualizar sesión en DB
             const syncPayload = {
                 jid: senderJid,
                 phone: senderNumber,
                 pushName: msg.pushName || "",
+                conversationId,
                 history: aiResponse.newHistory,
                 lastMessage: combinedText,
+                replyStatus: 'ATENDIDO',
+                status: isClosedSession ? 'CLOSED' : 'ACTIVE',
+                closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
                 updatedAt: new Date()
             };
 
@@ -300,6 +349,32 @@ class BotWhatsappService {
 
         } catch (error: any) {
             console.error(`[WSP BOT Error] Error processing message from ${senderNumber}:`, error);
+        }
+    }
+
+    public async recoverPendingConversations(): Promise<void> {
+        const backendUrl = this.getCleanBackendUrl();
+        const apiKey = getApiKey();
+        try {
+            console.log(`[WSP BOT Recovery] Verificando mensajes pendientes de respuesta en DB...`);
+            const res = await axios.get(`${backendUrl}/api/v1/crm/conversation/pending`, {
+                headers: { 'x-api-key': apiKey },
+                timeout: 10000
+            });
+            const list = res.data?.conversations;
+            if (Array.isArray(list) && list.length > 0) {
+                console.log(`[WSP BOT Recovery] Se encontraron ${list.length} conversaciones pendientes tras reinicio. Procesando...`);
+                for (const conv of list) {
+                    const lastMsg = conv.messages && conv.messages.length > 0 ? conv.messages[conv.messages.length - 1] : null;
+                    if (lastMsg && lastMsg.role === 'user' && lastMsg.text) {
+                        console.log(`[WSP BOT Recovery] Auto-respondiendo conversación pendiente para ${conv.phone}...`);
+                        await this.handleIncomingMessage(conv.jid, conv.phone, lastMsg.text, { pushName: '' });
+                        await new Promise(r => setTimeout(r, 5000));
+                    }
+                }
+            }
+        } catch (err: any) {
+            console.warn(`[WSP BOT Recovery Warning] ${err.message}`);
         }
     }
 
