@@ -303,52 +303,77 @@ class BotWhatsappService {
                 return;
             }
 
-            // 3. Generar respuesta de Gemini inyectando perfil del cliente
-            const aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid, leadProfile);
-
-            userStates.set(senderJid, {
-                step: 'CHATTING',
-                history: aiResponse.newHistory,
-                lastActivity: Date.now()
-            });
-
-            if (aiResponse.text && aiResponse.text.trim()) {
-                // Retardo aleatorio humano entre 20s y 2min (máximo 2 minutos)
-                const minDelay = 20000;
-                const maxDelay = 120000;
-                const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-                const delaySeconds = Math.round(randomDelay / 1000);
-                console.log(`[WSP BOT Delay] Espera humana de ${delaySeconds}s (${(delaySeconds / 60).toFixed(1)} min) antes de enviar a ${senderNumber}...`);
-                
-                await new Promise(resolve => setTimeout(resolve, randomDelay));
-                await this.sendMessage(senderJid, aiResponse.text.trim());
-            }
-
-            // 4. Marcar estado como ATENDIDO y actualizar sesión en DB
-            const syncPayload = {
-                jid: senderJid,
-                phone: senderNumber,
-                pushName: msg.pushName || "",
-                conversationId,
-                history: aiResponse.newHistory,
-                lastMessage: combinedText,
-                replyStatus: 'ATENDIDO',
-                status: isClosedSession ? 'CLOSED' : 'ACTIVE',
-                closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
-                updatedAt: new Date()
-            };
-
+            // 3. Generar respuesta de Gemini e inyectar perfil del cliente
+            let aiResponse: any;
             try {
-                await axios.post(syncUrl, syncPayload, {
-                    headers: { 'x-api-key': apiKey },
-                    timeout: 5000
+                aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid, leadProfile);
+
+                userStates.set(senderJid, {
+                    step: 'CHATTING',
+                    history: aiResponse.newHistory,
+                    lastActivity: Date.now()
                 });
-            } catch (err: any) {
-                console.error(`[WSP BOT Sync Error] (${syncUrl}) ${err.message}`);
+
+                if (aiResponse.text && aiResponse.text.trim()) {
+                    // Retardo aleatorio humano entre 20s y 2min (máximo 2 minutos)
+                    const minDelay = 20000;
+                    const maxDelay = 120000;
+                    const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
+                    const delaySeconds = Math.round(randomDelay / 1000);
+                    console.log(`[WSP BOT Delay] Espera humana de ${delaySeconds}s (${(delaySeconds / 60).toFixed(1)} min) antes de enviar a ${senderNumber}...`);
+                    
+                    await new Promise(resolve => setTimeout(resolve, randomDelay));
+                    
+                    // Enviar mensaje por socket de WhatsApp
+                    await this.sendMessage(senderJid, aiResponse.text.trim());
+                    
+                    // 4. ÚNICAMENTE TRAS ENVIAR EL MENSAJE CON ÉXITO: Marcar como ATENDIDO en DB
+                    const syncPayload = {
+                        jid: senderJid,
+                        phone: senderNumber,
+                        pushName: msg.pushName || "",
+                        conversationId,
+                        history: aiResponse.newHistory,
+                        lastMessage: combinedText,
+                        replyStatus: 'ATENDIDO',
+                        status: isClosedSession ? 'CLOSED' : 'ACTIVE',
+                        closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
+                        updatedAt: new Date()
+                    };
+
+                    await axios.post(syncUrl, syncPayload, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 5000
+                    });
+                } else {
+                    console.warn(`[WSP BOT Warning] Gemini devolvió respuesta vacía para ${senderNumber}. Se mantiene estado PENDIENTE.`);
+                }
+            } catch (responseErr: any) {
+                console.error(`[WSP BOT Error] Falló el procesamiento o envío de respuesta para ${senderNumber}: ${responseErr.message}. La conversación SE MANTIENE PENDIENTE en DB.`);
+                
+                // Asegurar resiliencia: actualizar estado PENDIENTE en DB
+                try {
+                    await axios.post(syncUrl, {
+                        jid: senderJid,
+                        phone: senderNumber,
+                        pushName: msg.pushName || "",
+                        conversationId,
+                        history: history,
+                        lastMessage: combinedText,
+                        replyStatus: 'PENDIENTE',
+                        status: 'ACTIVE',
+                        updatedAt: new Date()
+                    }, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 5000
+                    });
+                } catch (syncErr: any) {
+                    console.error(`[WSP BOT Sync Fallback Error] (${syncUrl}): ${syncErr.message}`);
+                }
             }
 
         } catch (error: any) {
-            console.error(`[WSP BOT Error] Error processing message from ${senderNumber}:`, error);
+            console.error(`[WSP BOT Error] Error general procesando mensaje de ${senderNumber}:`, error);
         }
     }
 
@@ -363,15 +388,33 @@ class BotWhatsappService {
             });
             const list = res.data?.conversations;
             if (Array.isArray(list) && list.length > 0) {
-                console.log(`[WSP BOT Recovery] Se encontraron ${list.length} conversaciones pendientes tras reinicio. Procesando...`);
+                console.log(`[WSP BOT Recovery] Se encontraron ${list.length} conversación(es) pendiente(s) tras reinicio. Procesando...`);
                 for (const conv of list) {
-                    const lastMsg = conv.messages && conv.messages.length > 0 ? conv.messages[conv.messages.length - 1] : null;
-                    if (lastMsg && lastMsg.role === 'user' && lastMsg.text) {
-                        console.log(`[WSP BOT Recovery] Auto-respondiendo conversación pendiente para ${conv.phone}...`);
-                        await this.handleIncomingMessage(conv.jid, conv.phone, lastMsg.text, { pushName: '' });
-                        await new Promise(r => setTimeout(r, 5000));
+                    const messages = conv.messages || [];
+                    const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+                    
+                    let lastText = "";
+                    let isUserRole = false;
+
+                    if (lastMsg) {
+                        if (lastMsg.role === 'user') isUserRole = true;
+                        if (typeof lastMsg.text === 'string' && lastMsg.text.trim()) {
+                            lastText = lastMsg.text.trim();
+                        } else if (Array.isArray(lastMsg.parts) && lastMsg.parts[0]?.text) {
+                            lastText = lastMsg.parts[0].text.trim();
+                        }
+                    }
+
+                    if (isUserRole && lastText) {
+                        console.log(`[WSP BOT Recovery] Auto-respondiendo conversación pendiente para ${conv.phone} (Mensaje: "${lastText}")...`);
+                        await this.handleIncomingMessage(conv.jid, conv.phone, lastText, { pushName: conv.pushName || '' });
+                        await new Promise(r => setTimeout(r, 3000));
+                    } else {
+                        console.log(`[WSP BOT Recovery] La conversación pendiente de ${conv.phone} no tiene un mensaje de usuario para procesar.`);
                     }
                 }
+            } else {
+                console.log(`[WSP BOT Recovery] No hay conversaciones pendientes de respuesta.`);
             }
         } catch (err: any) {
             console.warn(`[WSP BOT Recovery Warning] ${err.message}`);
