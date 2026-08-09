@@ -504,7 +504,7 @@ function getCleanBackendUrl(): string {
                                 timeout: 15000
                             });
 
-                            console.log(`[Gemini Tool createLead] ✅ Lead uploaded/updated in Zoho CRM successfully:`, JSON.stringify(res.data));
+                            console.log(`[WSP BOT ZOHO LOG] 🟢 CLIENTE GUARDADO EN ZOHO CRM CON ÉXITO: "${args.firstName} ${args.lastName || ''}" | Celular: ${senderNumber} | Ciudad: ${args.city} | Origen: IA | ZohoID: ${res.data?.zohoLeadId || 'OK'}`);
                             functionResult = { status: "success", message: "Lead registrado/actualizado exitosamente en Zoho CRM (Módulo Leads)." };
                         } catch (error: any) {
                             console.error(`[Gemini Tool createLead] ❌ ERROR uploading Lead to Zoho: ${error.message}`);
