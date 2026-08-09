@@ -414,9 +414,14 @@ export class GeminiService {
                     
                     console.log(`[Gemini] Executing Tool: ${name}`, args);
 
+function getCleanBackendUrl(): string {
+    const raw = (process.env.BACKEND_URL || 'http://localhost:4000').trim();
+    return raw.replace(/\/api\/v1\/?$/i, '').replace(/\/+$/, '');
+}
+
                     let functionResult;
                     if (name === "createLead") {
-                        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                        const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
 
                         const leadPayload = {
@@ -454,7 +459,7 @@ export class GeminiService {
                         console.log("[Gemini] Service appointment request:", args);
                         functionResult = { status: "success", message: "Turno de taller registrado internamente de manera exitosa (Mock)" };
                     } else if (name === "checkRepuestoStock") {
-                        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                        const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
                         
                         console.log(`[Gemini Tool checkRepuestoStock] Searching: "${args.repuestoName || args.code}" | Locality: ${args.locality}`);
@@ -482,7 +487,7 @@ export class GeminiService {
                             };
                         }
                     } else if (name === "checkFinancing") {
-                        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                        const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
                         
                         const dniClean = (args.dni || "").toString().replace(/\D/g, "");
@@ -511,7 +516,7 @@ export class GeminiService {
                             };
                         }
                     } else if (name === "getSucursales") {
-                        const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                        const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
 
                         try {

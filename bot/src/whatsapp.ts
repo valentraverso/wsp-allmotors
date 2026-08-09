@@ -203,13 +203,18 @@ class BotWhatsappService {
         }
     }
 
+    private getCleanBackendUrl(): string {
+        const raw = (process.env.BACKEND_URL || 'http://localhost:4000').trim();
+        return raw.replace(/\/api\/v1\/?$/i, '').replace(/\/+$/, '');
+    }
+
     private async handleIncomingMessage(senderJid: string, senderNumber: string, combinedText: string, msg: any) {
         try {
             let state = userStates.get(senderJid);
 
             // Hidratar historial desde backend si no existe en RAM
             if (!state || !state.history || state.history.length === 0) {
-                const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+                const backendUrl = this.getCleanBackendUrl();
                 const apiKey = getApiKey();
                 let loadedHistory: any[] = [];
 
@@ -271,10 +276,10 @@ class BotWhatsappService {
                 await new Promise(resolve => setTimeout(resolve, randomDelay));
                 await this.sendMessage(senderJid, aiResponse.text.trim());
             }
-
             // Sincronizar conversación en MongoDB
-            const backendUrl = process.env.BACKEND_URL || "http://localhost:4000";
+            const backendUrl = this.getCleanBackendUrl();
             const apiKey = getApiKey();
+            const syncUrl = `${backendUrl}/api/v1/crm/chat/sync`;
             const syncPayload = {
                 jid: senderJid,
                 phone: senderNumber,
@@ -285,12 +290,12 @@ class BotWhatsappService {
             };
 
             try {
-                await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, syncPayload, {
+                await axios.post(syncUrl, syncPayload, {
                     headers: { 'x-api-key': apiKey },
                     timeout: 5000
                 });
             } catch (err: any) {
-                console.error(`[WSP BOT Sync Error] ${err.message}`);
+                console.error(`[WSP BOT Sync Error] (${syncUrl}) ${err.message}`);
             }
 
         } catch (error: any) {
