@@ -85,7 +85,10 @@ function getGeminiClient(): GoogleGenAI {
 }
 
 const SYSTEM_PROMPT_TEMPLATE = `
-Eres el asistente virtual de All Motors, un importante concesionario multimarca en Argentina.
+NOMBRE E IDENTIDAD DEL ASISTENTE:
+- Te llamás **"Manuel Botardo"** (también usás las variantes **"Manu Botardo"** y **"Manuel Botardo"** al saludarte o referirte a vos mismo).
+- Si el cliente te pregunta cómo te llamás, quién sos o te llama "Manu" / "Manuel Botardo", confirmá amablemente tu nombre usando estas variantes.
+- Eres el asistente virtual de ventas de All Motors, un importante concesionario multimarca en Argentina.
 
 TONO Y PERSONALIDAD:
 - Sé agradable, servicial y usa una tonada argentina muy natural y empática (voseo: "che", "vení", "contame", "¿en qué te puedo ayudar?").
@@ -203,6 +206,9 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 7. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (REQUERIMIENTO DE NOMBRE Y APELLIDO)**:
    - Recolectar Nombre, Apellido, Ciudad y Provincia. Si te dice solo el primer nombre, solicitá el Apellido antes de ejecutar 'createLead'.
    - Teléfono: AUTOMÁTICO desde Baileys. NUNCA SE LO PIDAS AL CLIENTE.
+   - **REGLA DE INMUTABILIDAD DEL NOMBRE DEL CLIENTE**: El primer Nombre y Apellido que el cliente te proporcione queda fijado como su identidad guardada. Si el cliente menciona otros nombres (ej: al dar los datos de un garante, familiar o pariente), PROHIBIDO cambiar el Nombre y Apellido del cliente titular en 'createLead', a menos que el cliente te pida explícitamente cambiar su propio nombre (ej: "cambiá mi nombre a...", "en realidad me llamo...").
+   - **CAMPO 'Credito_aprobado' EN ZOHO CRM**: Si el cliente o cualquiera de sus garantes obtiene crédito preaprobado/aprobado (monto disponible > 0), envía 'creditoAprobado: true' al ejecutar 'createLead'.
+   - **REGISTRO DE GARANTES Y CAMPO 'Garantes' EN ZOHO CRM**: Si evalúas o registras garantes o parientes, envíalos en el arreglo 'garantes' de 'createLead' especificando por cada uno su DNI, género, monto disponible si tiene y parentesco.
 
 8. **DESPEDIDA Y CORTE ABSOLUTO DE BUCLE DE AGRADECIMIENTOS O EMOJIS**:
    - Si ya se dio la despedida o confirmación y el cliente responde con cortesías secundarias o emojis (ej: "gracias", "chau", "dale", "👍"): PROHIBIDO seguir alargando la charla o responder con emojis repetidos. Si la conversación ya concluyó, silenciar o responder como máximo 2 palabras (ej: "¡De nada!").
@@ -348,7 +354,23 @@ const tools: Tool[] = [
                         state: { type: Type.STRING, description: "Provincia del cliente (OBLIGATORIA al guardar la ciudad. Deduce la provincia según la ciudad, ej: Santa Fe -> Santa Fe, Concordia/Paraná/Gualeguaychú -> Entre Ríos, Goya -> Corrientes, Resistencia -> Chaco, Córdoba -> Córdoba, etc.)" },
                         interest: { type: Type.STRING, description: "Marca, modelo, cilindrada o estilo de moto en el que está interesado el cliente" },
                         dni: { type: Type.STRING, description: "Número de DNI del cliente principal que realiza la consulta" },
-                        availableAmount: { type: Type.STRING, description: "Monto total preaprobado de crédito en las financieras para el DNI del cliente (ej. 1500000 o 2000000)" }
+                        availableAmount: { type: Type.STRING, description: "Monto total preaprobado de crédito en las financieras para el DNI del cliente (ej. 1500000 o 2000000)" },
+                        creditoAprobado: { type: Type.BOOLEAN, description: "Establecer en true si el cliente o alguno de sus garantes obtuvo crédito preaprobado/aprobado (monto > 0)" },
+                        forceUpdateName: { type: Type.BOOLEAN, description: "Establecer en true ÚNICAMENTE si el usuario pidió explícitamente corregir o cambiar su propio Nombre/Apellido" },
+                        garantes: {
+                            type: Type.ARRAY,
+                            description: "Lista de garantes o parientes evaluados para financiación",
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    dni: { type: Type.STRING, description: "DNI del garante" },
+                                    genero: { type: Type.STRING, description: "Género del garante (Femenino o Masculino)" },
+                                    montoDisponible: { type: Type.STRING, description: "Monto disponible o preaprobado si tiene" },
+                                    parentesco: { type: Type.STRING, description: "Parentesco del garante si lo especifica (ej: Padre, Hermano, Amigo, Tío, Primo, etc.)" }
+                                },
+                                required: ["dni"]
+                            }
+                        }
                     },
                     required: ["firstName", "lastName", "city", "state"]
                 }
@@ -504,6 +526,9 @@ function getCleanBackendUrl(): string {
                             interest: args.interest,
                             dni: args.dni || "",
                             availableAmount: args.availableAmount || null,
+                            creditoAprobado: args.creditoAprobado || false,
+                            forceUpdateName: args.forceUpdateName || false,
+                            garantes: args.garantes || [],
                             leadSource: "IA"
                         };
 
