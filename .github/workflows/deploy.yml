@@ -4,50 +4,29 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
-  build-and-deploy:
-    name: 📱 Build & Deploy WSP
+  deploy:
+    name: 📱 Deploy WSP to VPS
     runs-on: ubuntu-latest
     steps:
-      - name: 📥 Clonar repositorio
-        uses: actions/checkout@v4
-
-      - name: 🛠️ Configurar Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-
-      - name: 📦 Instalar dependencias y Compilar (Bot e Interno)
-        run: |
-          npm install --no-audit --no-fund
-          cd internal && npm install --no-audit --no-fund && npm run build && cd ..
-          cd bot && npm install --no-audit --no-fund && npm run build && cd ..
-
-      - name: 📤 Enviar archivos por SSH (SCP)
-        uses: appleboy/scp-action@v0.1.4
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USER }}
-          password: ${{ secrets.SSH_PASSWORD }}
-          source: "."
-          target: "/var/www/wsp"
-          rm: false
-
-      - name: 🔄 Compilar y Reiniciar PM2 en VPS
+      - name: 🔄 Ejecutar Deploy en VPS vía SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT || 22 }}
           script: |
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             cd /var/www/wsp
+            git pull origin main
             npm install --no-audit --no-fund
             cd internal && npm install --no-audit --no-fund && npm run build && cd ..
             cd bot && npm install --no-audit --no-fund && npm run build && cd ..
             pm2 restart ecosystem.config.js --update-env || pm2 start ecosystem.config.js
             pm2 save
+
 
