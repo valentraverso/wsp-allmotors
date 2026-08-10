@@ -49,6 +49,7 @@ class BotWhatsappService {
     public sock: WASocket | null = null;
     private qr: string | null = null;
     private isInitializing = false;
+    private cronTimer: NodeJS.Timeout | null = null;
 
     async init() {
         if (this.isInitializing) return;
@@ -126,6 +127,14 @@ class BotWhatsappService {
                     this.isInitializing = false;
                     console.log(`✓ [WSP BOT] WhatsApp Commercial AI Bot connected successfully!`);
                     setTimeout(() => this.recoverPendingConversations(), 5000);
+
+                    if (!this.cronTimer) {
+                        console.log(`[WSP BOT Cron] 🕒 Programando cron de recuperación cada 10 minutos para responder mensajes pendientes.`);
+                        this.cronTimer = setInterval(() => {
+                            console.log(`[WSP BOT Cron] 🕒 Ejecutando revisión periódica de mensajes pendientes no atendidos...`);
+                            this.recoverPendingConversations();
+                        }, 10 * 60 * 1000);
+                    }
                 }
             });
 
@@ -424,9 +433,16 @@ class BotWhatsappService {
             });
             const list = res.data?.conversations;
             if (Array.isArray(list) && list.length > 0) {
-                console.log(`[WSP BOT Recovery] Se encontraron ${list.length} conversación(es) pendiente(s) tras reinicio. Procesando...`);
+                console.log(`[WSP BOT Recovery] Se encontraron ${list.length} conversación(es) pendiente(s) de respuesta. Procesando...`);
                 for (const conv of list) {
-                    const messages = conv.messages || [];
+                    const lastTime = conv.updatedAt || conv.lastMessageAt || conv.createdAt;
+                    const elapsedMs = lastTime ? (Date.now() - new Date(lastTime).getTime()) : 999999;
+                    if (elapsedMs < 60000 && userMessageBatches.has(conv.jid)) {
+                        console.log(`[WSP BOT Recovery] Omitiendo ${conv.phone} porque se encuentra activamente en ventana de espera (${Math.round(elapsedMs / 1000)}s).`);
+                        continue;
+                    }
+
+                    const messages = conv.messages || conv.history || [];
                     const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
                     
                     let lastText = "";
@@ -442,11 +458,11 @@ class BotWhatsappService {
                     }
 
                     if (isUserRole && lastText) {
-                        console.log(`[WSP BOT Recovery] Auto-respondiendo conversación pendiente para ${conv.phone} (Mensaje: "${lastText}")...`);
+                        console.log(`[WSP BOT Recovery] 🕒 Reintentando respuesta automática para ${conv.phone} (Mensaje: "${lastText}")...`);
                         await this.handleIncomingMessage(conv.jid, conv.phone, lastText, { pushName: conv.pushName || '' });
-                        await new Promise(r => setTimeout(r, 3000));
+                        await new Promise(r => setTimeout(r, 5000));
                     } else {
-                        console.log(`[WSP BOT Recovery] La conversación pendiente de ${conv.phone} no tiene un mensaje de usuario para procesar.`);
+                        console.log(`[WSP BOT Recovery] La conversación pendiente de ${conv.phone} no tiene un mensaje de usuario activo por procesar.`);
                     }
                 }
             } else {

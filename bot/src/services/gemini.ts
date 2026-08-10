@@ -677,7 +677,7 @@ function getCleanBackendUrl(): string {
                         { role: "user", parts: toolResults }
                     ],
                     config: {
-                        systemInstruction: buildSystemPrompt(),
+                        systemInstruction: buildSystemPrompt(leadProfile),
                         tools: tools,
                     }
                 });
