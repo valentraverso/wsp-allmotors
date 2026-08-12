@@ -678,7 +678,7 @@ function getCleanBackendUrl(): string {
                         try {
                             const res = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${encodeURIComponent(target)}`, {
                                 headers: { 'x-api-key': apiKey },
-                                timeout: 5000
+                                timeout: 15000
                             });
                             const foundLead = res.data?.data?.lead;
                             if (foundLead) {

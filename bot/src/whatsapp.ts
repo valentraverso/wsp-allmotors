@@ -50,6 +50,7 @@ class BotWhatsappService {
     private qr: string | null = null;
     private isInitializing = false;
     private cronTimer: NodeJS.Timeout | null = null;
+    private processingUsers = new Set<string>();
 
     async init() {
         if (this.isInitializing) return;
@@ -185,7 +186,7 @@ class BotWhatsappService {
                             updatedAt: new Date()
                         }, {
                             headers: { 'x-api-key': apiKey },
-                            timeout: 5000
+                            timeout: 15000
                         });
                         console.log(`[WSP BOT Sync] 🟢 Mensaje de ${senderNumber} registrado inmediatamente en DB con estado PENDIENTE`);
                     } catch (syncErr: any) {
@@ -239,6 +240,14 @@ class BotWhatsappService {
     }
 
     private async handleIncomingMessage(senderJid: string, senderNumber: string, combinedText: string, msg: any) {
+        if (this.processingUsers.has(senderJid) || (senderNumber && this.processingUsers.has(senderNumber))) {
+            console.log(`[WSP BOT Guard] ⚠️ Ya existe un procesamiento activo en curso para ${senderNumber || senderJid}. Omitiendo ejecución concurrente.`);
+            return;
+        }
+
+        this.processingUsers.add(senderJid);
+        if (senderNumber) this.processingUsers.add(senderNumber);
+
         try {
             const backendUrl = this.getCleanBackendUrl();
             const apiKey = getApiKey();
@@ -252,7 +261,7 @@ class BotWhatsappService {
                     try {
                         const activeRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${encodeURIComponent(target)}`, {
                             headers: { 'x-api-key': apiKey },
-                            timeout: 5000
+                            timeout: 15000
                         });
                         if (activeRes.data && activeRes.data.data) {
                             if (activeRes.data.data.lead) {
@@ -285,7 +294,7 @@ class BotWhatsappService {
                 try {
                     const chatRes = await axios.get(`${backendUrl}/api/v1/crm/chats/${encodeURIComponent(senderJid)}`, {
                         headers: { 'x-api-key': apiKey },
-                        timeout: 5000
+                        timeout: 15000
                     });
                     if (chatRes.data && Array.isArray(chatRes.data.history)) {
                         loadedHistory = chatRes.data.history;
@@ -318,7 +327,7 @@ class BotWhatsappService {
                     updatedAt: new Date()
                 }, {
                     headers: { 'x-api-key': apiKey },
-                    timeout: 5000
+                    timeout: 15000
                 });
             } catch (err: any) {
                 // ignore
@@ -388,7 +397,7 @@ class BotWhatsappService {
 
                     await axios.post(syncUrl, syncPayload, {
                         headers: { 'x-api-key': apiKey },
-                        timeout: 5000
+                        timeout: 15000
                     });
                 } else {
                     console.warn(`[WSP BOT Warning] Gemini devolvió respuesta vacía para ${senderNumber}. Se mantiene estado PENDIENTE.`);
@@ -410,7 +419,7 @@ class BotWhatsappService {
                         updatedAt: new Date()
                     }, {
                         headers: { 'x-api-key': apiKey },
-                        timeout: 5000
+                        timeout: 15000
                     });
                 } catch (syncErr: any) {
                     console.error(`[WSP BOT Sync Fallback Error] (${syncUrl}): ${syncErr.message}`);
@@ -419,6 +428,9 @@ class BotWhatsappService {
 
         } catch (error: any) {
             console.error(`[WSP BOT Error] Error general procesando mensaje de ${senderNumber}:`, error);
+        } finally {
+            this.processingUsers.delete(senderJid);
+            if (senderNumber) this.processingUsers.delete(senderNumber);
         }
     }
 
@@ -429,12 +441,17 @@ class BotWhatsappService {
             console.log(`[WSP BOT Recovery] Verificando mensajes pendientes de respuesta en DB...`);
             const res = await axios.get(`${backendUrl}/api/v1/crm/conversation/pending`, {
                 headers: { 'x-api-key': apiKey },
-                timeout: 10000
+                timeout: 15000
             });
             const list = res.data?.conversations;
             if (Array.isArray(list) && list.length > 0) {
                 console.log(`[WSP BOT Recovery] Se encontraron ${list.length} conversación(es) pendiente(s) de respuesta. Procesando...`);
                 for (const conv of list) {
+                    if (this.processingUsers.has(conv.jid) || (conv.phone && this.processingUsers.has(conv.phone))) {
+                        console.log(`[WSP BOT Recovery] Omitiendo ${conv.phone || conv.jid} porque ya cuenta con una respuesta en proceso en memoria.`);
+                        continue;
+                    }
+
                     const lastTime = conv.updatedAt || conv.lastMessageAt || conv.createdAt;
                     const elapsedMs = lastTime ? (Date.now() - new Date(lastTime).getTime()) : 999999;
                     if (elapsedMs < 60000 && userMessageBatches.has(conv.jid)) {
@@ -462,7 +479,21 @@ class BotWhatsappService {
                         await this.handleIncomingMessage(conv.jid, conv.phone, lastText, { pushName: conv.pushName || '' });
                         await new Promise(r => setTimeout(r, 5000));
                     } else {
-                        console.log(`[WSP BOT Recovery] La conversación pendiente de ${conv.phone} no tiene un mensaje de usuario activo por procesar.`);
+                        console.log(`[WSP BOT Recovery] La conversación pendiente de ${conv.phone} ya fue respondida o no tiene mensaje de usuario. Marcando ATENDIDO en DB.`);
+                        try {
+                            await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                jid: conv.jid,
+                                phone: conv.phone,
+                                conversationId: conv.conversationId,
+                                replyStatus: 'ATENDIDO',
+                                updatedAt: new Date()
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                        } catch {
+                            // ignore fallback sync error
+                        }
                     }
                 }
             } else {
