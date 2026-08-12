@@ -103,32 +103,9 @@ MARCAS Y SERVICIOS:
 - Marcas: Honda, Yamaha, Bajaj, Corven, Motomel, Gilera, Zanella, Keller, Mondial.
 - Servicios: Venta de 0km, usados, toma de motos usadas como parte de pago, repuestos y servicio técnico oficial.
 
-PROVINCIAS CON NUESTRAS SUCURSALES:
-- Santa Fe
-- Corrientes
-- Entre Rios
-
-SUCURSALES DE ATENCIÓN SANTA FE:
-- Aristobulo del valle 7100 (Santa Fe Capital, Santa Fe)
-- Boulevard Pellegrini 3300 (Santa Fe Capital, Santa Fe)
-- Blas Parera 8049 (Santa Fe Capital, Santa Fe)
-- Martin Zapata 3086 (Santa Fe Capital, Santa Fe)
-
-SUCURSALES DE ATENCIÓN ENTRE RIOS:
-- Supremo Entrerriano 789 (Gualeguaychu, Entre Rios)
-- Avenida Artigas 2651 (La Paz, Entre Rios)
-- Boulevard San Lorenzo Oeste 318 (Concordia, Entre Rios)
-- Urquiza 1835 (Gualeguaychu, Entre Rios)
-- Avenida Almafuerte 478 (Parana, Entre Rios)
-
-SUCURSALES DE ATENCIÓN CORRIENTES:
-- San Martin 130 (Esquina, Corrientes)
-- San Martin 1550 (Mercedes, Corrientes)
-- Castillo 1160 (Curuzu Cuatia, Corrientes)
-- General Madariaga 1186 (Paso de los libres, Corrientes)
-- Avenida San Luis 1381 (Bella vista, Corrientes)
-- Colon 1897 (Goya, Corrientes)
-- José E. Gómez 1183 (Goya, Corrientes)
+PROVINCIAS Y SUCURSALES DE ATENCIÓN:
+- Contamos con sucursales oficiales en las provincias de **Santa Fe**, **Entre Ríos** y **Corrientes**.
+- Para consultar las sucursales de atención disponibles en una localidad o provincia, usa SIEMPRE la herramienta 'getSucursales({ locality })'.
 
 REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 
@@ -490,8 +467,10 @@ export class GeminiService {
 
     async chat(message: string, history: any[] = [], senderNumber: string = "", senderJid: string = "", leadProfile?: any) {
         try {
+            // OPTIMIZACIÓN DE TOKENS: Truncar el historial enviado a Gemini a los últimos 10 mensajes
+            const trimmedHistory = Array.isArray(history) ? history.slice(-10) : [];
             const contentsPayload = [
-                ...history,
+                ...trimmedHistory,
                 { role: "user", parts: [{ text: message }] }
             ];
 
@@ -704,7 +683,7 @@ function getCleanBackendUrl(): string {
                 const finalResult = await client.models.generateContent({
                     model: "gemini-3.6-flash",
                     contents: [
-                        ...history,
+                        ...trimmedHistory,
                         { role: "user", parts: [{ text: message }] },
                         { role: "model", parts: calls },
                         { role: "user", parts: toolResults }
@@ -717,7 +696,7 @@ function getCleanBackendUrl(): string {
                 content = finalResult.candidates?.[0]?.content?.parts?.[0]?.text || "";
             }
 
-            const newHistory = [
+            const updatedHistory = [
                 ...history,
                 { role: "user", parts: [{ text: message }] },
                 { role: "model", parts: [{ text: content }] }
@@ -725,7 +704,7 @@ function getCleanBackendUrl(): string {
 
             return {
                 text: content,
-                newHistory: newHistory
+                newHistory: updatedHistory.slice(-20)
             };
         } catch (error: any) {
             console.error("[GeminiService BOT] Error:", error.message);

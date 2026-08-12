@@ -475,6 +475,20 @@ class BotWhatsappService {
                         }
                     }
 
+                    if (elapsedMs > 2 * 60 * 60 * 1000) {
+                        console.log(`[WSP BOT Recovery] 🛑 Omitiendo reintento para ${conv.phone}: mensaje antiguo (${Math.round(elapsedMs / (60 * 60 * 1000))} hs). Marcando ATENDIDO en DB para preservar tokens.`);
+                        try {
+                            await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                jid: conv.jid,
+                                phone: conv.phone,
+                                conversationId: conv.conversationId,
+                                replyStatus: 'ATENDIDO',
+                                updatedAt: new Date()
+                            }, { headers: { 'x-api-key': apiKey }, timeout: 15000 });
+                        } catch {}
+                        continue;
+                    }
+
                     if (isUserRole && lastText) {
                         console.log(`[WSP BOT Recovery] 🕒 Reintentando respuesta automática para ${conv.phone} (Mensaje: "${lastText}")...`);
                         await this.handleIncomingMessage(conv.jid, conv.phone, lastText, { pushName: conv.pushName || '' });
