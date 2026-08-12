@@ -454,6 +454,26 @@ class BotWhatsappService {
 
                     const lastTime = conv.updatedAt || conv.lastMessageAt || conv.createdAt;
                     const elapsedMs = lastTime ? (Date.now() - new Date(lastTime).getTime()) : 999999;
+
+                    if (elapsedMs > 15 * 60 * 1000) {
+                        console.log(`[WSP BOT Recovery Cleanup] 🧹 Conversación atascada de ${conv.phone || conv.jid} (${Math.round(elapsedMs / 60000)} min de antigüedad). Marcando ATENDIDO en DB...`);
+                        try {
+                            await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                jid: conv.jid,
+                                phone: conv.phone,
+                                conversationId: conv.conversationId,
+                                replyStatus: 'ATENDIDO',
+                                updatedAt: new Date()
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                        } catch {
+                            // ignore
+                        }
+                        continue;
+                    }
+
                     if (elapsedMs < 60000 && userMessageBatches.has(conv.jid)) {
                         console.log(`[WSP BOT Recovery] Omitiendo ${conv.phone} porque se encuentra activamente en ventana de espera (${Math.round(elapsedMs / 1000)}s).`);
                         continue;
