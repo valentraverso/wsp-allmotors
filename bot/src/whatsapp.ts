@@ -353,7 +353,22 @@ class BotWhatsappService {
             const lastBotText = lastHistoryMsg && lastHistoryMsg.role === 'model' ? (lastHistoryMsg.parts?.[0]?.text || '').toLowerCase() : '';
 
             if (isOnlyCourtesyOrEmoji(combinedText) && (lastBotText.includes('de nada') || lastBotText.includes('que tengas') || lastBotText.includes('cualquier duda') || /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/u.test(lastBotText))) {
-                console.log(`[WSP BOT Courtesy Cutoff] Bucle de cortesía/emoji detectado para ${senderNumber}. Silenciando respuesta.`);
+                console.log(`[WSP BOT Courtesy Cutoff] Bucle de cortesía/emoji detectado para ${senderNumber}. Silenciando respuesta y marcando ATENDIDO en DB.`);
+                try {
+                    await axios.post(syncUrl, {
+                        jid: senderJid,
+                        phone: senderNumber,
+                        pushName: msg.pushName || "",
+                        conversationId,
+                        replyStatus: 'ATENDIDO',
+                        updatedAt: new Date()
+                    }, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 15000
+                    });
+                } catch (cErr: any) {
+                    console.error(`[WSP BOT Courtesy Sync Error]: ${cErr.message}`);
+                }
                 return;
             }
 
