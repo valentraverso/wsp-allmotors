@@ -173,7 +173,7 @@ class BotWhatsappService {
 
                     if (!textMessage.trim()) continue;
 
-                    // Sincronizar inmediatamente a DB con estado PENDIENTE apenas ingresa el mensaje
+                    // Sincronizar inmediatamente a DB con estado PENDIENTE apenas ingresa el mensaje (sin lastMessage prematuro)
                     try {
                         const backendUrl = this.getCleanBackendUrl();
                         const apiKey = getApiKey();
@@ -182,7 +182,6 @@ class BotWhatsappService {
                             phone: senderNumber,
                             pushName: msg.pushName || "",
                             replyStatus: 'PENDIENTE',
-                            lastMessage: textMessage.trim(),
                             updatedAt: new Date()
                         }, {
                             headers: { 'x-api-key': apiKey },
@@ -201,7 +200,8 @@ class BotWhatsappService {
                         console.log(`[WSP BOT Batch] 🔄 Agregando mensaje a la ráfaga de ${senderNumber} (Total: ${existingBatch.messages.length}): "${textMessage.trim()}"`);
                         
                         existingBatch.timer = setTimeout(async () => {
-                            const fullText = existingBatch.messages.join(' | ');
+                            const uniqueMsgs = Array.from(new Set(existingBatch.messages.map(m => m.trim()).filter(Boolean)));
+                            const fullText = uniqueMsgs.join('\n');
                             const finalMsgObj = existingBatch.msgObj;
                             userMessageBatches.delete(senderJid);
                             await this.handleIncomingMessage(senderJid, senderNumber, fullText, finalMsgObj);
@@ -211,7 +211,8 @@ class BotWhatsappService {
                         const timer = setTimeout(async () => {
                             const current = userMessageBatches.get(senderJid);
                             if (current) {
-                                const fullText = current.messages.join(' | ');
+                                const uniqueMsgs = Array.from(new Set(current.messages.map(m => m.trim()).filter(Boolean)));
+                                const fullText = uniqueMsgs.join('\n');
                                 const finalMsgObj = current.msgObj;
                                 userMessageBatches.delete(senderJid);
                                 await this.handleIncomingMessage(senderJid, senderNumber, fullText, finalMsgObj);
