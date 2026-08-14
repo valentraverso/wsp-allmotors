@@ -428,7 +428,7 @@ const tools: Tool[] = [
 
 export class GeminiService {
     private async generateContentWithRetry(contents: any[], leadProfile?: any, attempts = 3): Promise<any> {
-        const currentModel = "gemini-3.6-flash";
+        const currentModel = "gemini-2.0-flash";
         const retryDelayMs = 120000;
 
         let lastError: any;
@@ -681,7 +681,7 @@ function getCleanBackendUrl(): string {
 
                 const client = await getGeminiClient();
                 const finalResult = await client.models.generateContent({
-                    model: "gemini-3.6-flash",
+                    model: "gemini-2.0-flash",
                     contents: [
                         ...trimmedHistory,
                         { role: "user", parts: [{ text: message }] },
