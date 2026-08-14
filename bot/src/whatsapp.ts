@@ -193,21 +193,21 @@ class BotWhatsappService {
                         // ignore non-critical sync errors
                     }
 
-                    // Agrupación ráfaga (Debounce 30s)
+                    // Agrupación ráfaga inteligente (Debounce dinámico 5s para consolidar N mensajes en 1 respuesta)
                     const existingBatch = userMessageBatches.get(senderJid);
                     if (existingBatch) {
                         clearTimeout(existingBatch.timer);
                         existingBatch.messages.push(textMessage.trim());
-                        console.log(`[WSP BOT Batch] Agregando mensaje a la ráfaga de ${senderNumber} (Total: ${existingBatch.messages.length}): "${textMessage.trim()}"`);
+                        console.log(`[WSP BOT Batch] 🔄 Agregando mensaje a la ráfaga de ${senderNumber} (Total: ${existingBatch.messages.length}): "${textMessage.trim()}"`);
                         
                         existingBatch.timer = setTimeout(async () => {
                             const fullText = existingBatch.messages.join(' | ');
                             const finalMsgObj = existingBatch.msgObj;
                             userMessageBatches.delete(senderJid);
                             await this.handleIncomingMessage(senderJid, senderNumber, fullText, finalMsgObj);
-                        }, 30000);
+                        }, 5000);
                     } else {
-                        console.log(`[WSP BOT Batch] Iniciando ráfaga de 30s para ${senderNumber}: "${textMessage.trim()}"`);
+                        console.log(`[WSP BOT Batch] 🕒 Iniciando ráfaga de 5s para ${senderNumber}: "${textMessage.trim()}"`);
                         const timer = setTimeout(async () => {
                             const current = userMessageBatches.get(senderJid);
                             if (current) {
@@ -216,7 +216,7 @@ class BotWhatsappService {
                                 userMessageBatches.delete(senderJid);
                                 await this.handleIncomingMessage(senderJid, senderNumber, fullText, finalMsgObj);
                             }
-                        }, 30000);
+                        }, 5000);
 
                         userMessageBatches.set(senderJid, {
                             messages: [textMessage.trim()],
@@ -384,12 +384,12 @@ class BotWhatsappService {
                 });
 
                 if (aiResponse.text && aiResponse.text.trim()) {
-                    // Retardo aleatorio humano entre 20s y 2min (máximo 2 minutos)
-                    const minDelay = 20000;
-                    const maxDelay = 120000;
+                    // Retardo aleatorio humano dinámico entre 3s y 8s (para respuesta natural pero fluida)
+                    const minDelay = 3000;
+                    const maxDelay = 8000;
                     const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
-                    const delaySeconds = Math.round(randomDelay / 1000);
-                    console.log(`[WSP BOT Delay] Espera humana de ${delaySeconds}s (${(delaySeconds / 60).toFixed(1)} min) antes de enviar a ${senderNumber}...`);
+                    const delaySeconds = (randomDelay / 1000).toFixed(1);
+                    console.log(`[WSP BOT Delay] Espera humana de ${delaySeconds}s antes de enviar respuesta a ${senderNumber}...`);
                     
                     await new Promise(resolve => setTimeout(resolve, randomDelay));
                     
