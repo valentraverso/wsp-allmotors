@@ -262,7 +262,7 @@ function getBusinessHoursInfo() {
     };
 }
 
-function buildSystemPrompt(leadProfile?: any): string {
+function buildSystemPrompt(leadProfile?: any, conversationId?: string, leadContextText?: string): string {
     const hoursInfo = getBusinessHoursInfo();
 
     const scheduleBlock = `
@@ -277,15 +277,36 @@ function buildSystemPrompt(leadProfile?: any): string {
    - **MOMENTO EXACTO PARA MENCIONAR QUE EL CONCESIONARIO ESTÁ CERRADO (REGLA ESTRICTA)** 🔴:
      - **NO MENCIONES QUE ESTAMOS CERRADOS MIENTRAS ESTÉS INTERACTUANDO, RESPONDIENDO PREGUNTAS O RECOLECTANDO LOS DATOS DEL CLIENTE**.
      - **MENCIONÁ QUE EL CONCESIONARIO ESTÁ CERRADO ÚNICAMENTE EN ESTOS 2 CASOS**:
-       1. **AL FINALIZAR EL REGISTRO COMPLETO**: Al terminar de pedir todos los datos del cliente (tras ejecutar 'createLead' con éxito con Nombre y Apellido completos), avísale que por estar cerrado en este momento, nuestro equipo le estará enviando las fotos, precios o información **${hoursInfo.reopeningText}** apenas volvamos a abrir.
+       1. **AL FINALIZAR EL REGISTRO COMPLETO**: Al terminar de pedir todos los datos del cliente (tras ejecutar 'crear_nuevo_lead' o 'actualizar_lead_activo' con Nombre y Apellido completos), avísale que por estar cerrado en este momento, nuestro equipo le estará enviando las fotos, precios o información **${hoursInfo.reopeningText}** apenas volvamos a abrir.
        2. **SI EL CLIENTE PREGUNTA EXPLÍCITAMENTE CUÁNDO SE LO CONTACTA O SI ATIENDEN AHORA**: Si pregunta "¿cuándo me contactan?", "¿cuándo me mandan?", "¿están abiertos?", "¿atienden ahora?" o consulta nuestros horarios.
 `;
 
     let prompt = SYSTEM_PROMPT_TEMPLATE + "\n" + scheduleBlock;
 
-    if (leadProfile) {
+    if (leadContextText && leadContextText.trim()) {
+        prompt += `\n\n--------------------------------------------------\nESTADO ACTUAL DEL CLIENTE Y LEAD EN DATABASE:\n${leadContextText}\n--------------------------------------------------\n
+REGLAS CRÍTICAS DE LÓGICA DE NEGOCIO SEGÚN EL ESTADO DEL LEAD:
+1. SI EL LEAD ACTIVO DICE: "No hay consultas activas en esta conversación. Debes crear un lead."
+   - Significa que el cliente inicia una nueva consulta o que sus consultas anteriores ya finalizaron.
+   - Recolectá su Nombre, Apellido y Ciudad (si aún figuran como 'Sin registrar' en [CLIENTE]).
+   - Indagá la moto de su interés y su medio de pago.
+   - En cuanto tengas la moto de interés y el medio de pago, ejecutá OBLIGATORIAMENTE la herramienta:
+     -> 'crear_nuevo_lead({ interest, paymentMethod, tradeIn, ... })'
+
+2. SI HAY UN [LEAD ACTIVO ACTUAL] (Estado: NUEVO o CONTACTADO):
+   - El cliente ya tiene una oportunidad comercial abierta en curso.
+   - ¡NO crees un lead nuevo!
+   - Si el cliente cambia de modelo de interés, aclara o cambia su medio de pago, o agrega una permuta/garante, ejecutá:
+     -> 'actualizar_lead_activo({ interest, paymentMethod, tradeIn, ... })'
+
+3. SI EL CLIENTE MANIFIESTA QUE NADIE SE COMUNICÓ CON ÉL O HACE UN RECLAMO:
+   - Si el cliente dice frases como: "nadie me llamó", "sigo esperando", "no se comunicaron conmigo", "hace días que espero":
+   - Mantené la calma, sé empático y confirmale que elevás la prioridad de su caso de inmediato.
+   - Ejecutá OBLIGATORIAMENTE la herramienta:
+     -> 'registrar_reclamo_contacto()'
+`;
+    } else if (leadProfile) {
         let profileText = `\n\n[FICHA DE PERFIL DEL CLIENTE ALMACENADA EN DATABASE]\n`;
-        // REGLA CRÍTICA: PROHIBIDO utilizar pushName para el nombre del cliente. El nombre debe provenir 100% de lo que el cliente escribió por texto.
         const formalFirstName = (leadProfile.firstName || '').trim();
         const formalLastName = (leadProfile.lastName || '').trim();
         const formalFullName = (leadProfile.fullName || (formalFirstName ? `${formalFirstName} ${formalLastName}`.trim() : '')).trim();
@@ -326,6 +347,126 @@ function buildSystemPrompt(leadProfile?: any): string {
 const tools: Tool[] = [
     {
         functionDeclarations: [
+            {
+                name: "crear_nuevo_lead",
+                description: "Crea una nueva oportunidad comercial (lead) cuando el cliente consulta por una moto o cotización y no existe un lead activo en la sesión. Si ya existía un lead activo, actualiza sus datos automáticamente.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        interest: {
+                            type: Type.STRING,
+                            description: "Marca, modelo o cilindrada de la moto de interés (ej: 'Honda Wave 110', 'XR 150', '110cc económica')."
+                        },
+                        paymentMethod: {
+                            type: Type.STRING,
+                            description: "Medio de pago o financiación: 'DNI', 'Recibo de sueldo', 'Tarjeta de credito', 'Efectivo', 'Entrega + DNI', 'Entrega + Recibo', 'Otro'."
+                        },
+                        tradeIn: {
+                            type: Type.BOOLEAN,
+                            description: "Opcional. true si el cliente desea entregar su moto usada como parte de pago, false si no."
+                        },
+                        notes: {
+                            type: Type.STRING,
+                            description: "Opcional. Detalles u observaciones comerciales adicionales."
+                        },
+                        firstName: {
+                            type: Type.STRING,
+                            description: "Opcional. Nombre del cliente."
+                        },
+                        lastName: {
+                            type: Type.STRING,
+                            description: "Opcional. Apellido del cliente."
+                        },
+                        city: {
+                            type: Type.STRING,
+                            description: "Opcional. Ciudad o localidad del cliente."
+                        },
+                        state: {
+                            type: Type.STRING,
+                            description: "Opcional. Provincia del cliente."
+                        },
+                        dni: {
+                            type: Type.STRING,
+                            description: "Opcional. DNI del cliente titular."
+                        },
+                        garantes: {
+                            type: Type.ARRAY,
+                            description: "Opcional. Lista de garantes evaluados o aportados por el cliente.",
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    dni: { type: Type.STRING, description: "DNI del garante." },
+                                    nombre: { type: Type.STRING, description: "Nombre completo del garante." },
+                                    genero: { type: Type.STRING, description: "Femenino o Masculino." },
+                                    montoDisponible: { type: Type.STRING, description: "Monto de crédito preaprobado del garante." },
+                                    parentesco: { type: Type.STRING, description: "Parentesco con el cliente titular." }
+                                },
+                                required: ["dni"]
+                            }
+                        }
+                    },
+                    required: ["interest", "paymentMethod"]
+                }
+            },
+            {
+                name: "actualizar_lead_activo",
+                description: "Actualiza los datos del lead activo de la conversación actual (por ejemplo si el cliente cambia de modelo de interés, aclara el medio de pago, agrega una permuta o garantes) y fija el estado en 'CONTACTADO'.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        interest: {
+                            type: Type.STRING,
+                            description: "Nuevo modelo o actualización de la moto de interés."
+                        },
+                        paymentMethod: {
+                            type: Type.STRING,
+                            description: "Medio de pago o financiación seleccionada."
+                        },
+                        tradeIn: {
+                            type: Type.BOOLEAN,
+                            description: "Opcional. true si entrega moto usada como parte de pago, false si no."
+                        },
+                        notes: {
+                            type: Type.STRING,
+                            description: "Opcional. Observaciones adicionales a anexar."
+                        },
+                        firstName: { type: Type.STRING, description: "Opcional. Nombre del cliente." },
+                        lastName: { type: Type.STRING, description: "Opcional. Apellido del cliente." },
+                        city: { type: Type.STRING, description: "Opcional. Ciudad o localidad del cliente." },
+                        state: { type: Type.STRING, description: "Opcional. Provincia del cliente." },
+                        dni: { type: Type.STRING, description: "Opcional. DNI del cliente titular." },
+                        garantes: {
+                            type: Type.ARRAY,
+                            description: "Opcional. Garantes actualizados.",
+                            items: {
+                                type: Type.OBJECT,
+                                properties: {
+                                    dni: { type: Type.STRING, description: "DNI del garante." },
+                                    nombre: { type: Type.STRING, description: "Nombre completo del garante." },
+                                    genero: { type: Type.STRING, description: "Femenino o Masculino." },
+                                    montoDisponible: { type: Type.STRING, description: "Monto de crédito preaprobado del garante." },
+                                    parentesco: { type: Type.STRING, description: "Parentesco con el cliente titular." }
+                                },
+                                required: ["dni"]
+                            }
+                        }
+                    },
+                    required: ["interest", "paymentMethod"]
+                }
+            },
+            {
+                name: "registrar_reclamo_contacto",
+                description: "Registra un reclamo de contacto cuando el cliente manifiesta que ya dejó sus datos previamente pero ningún asesor comercial se comunicó con él todavía. Pasa el lead activo a estado 'RECLAMA CONTACTO'.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        motivo: {
+                            type: Type.STRING,
+                            description: "Opcional. Motivo o comentario del cliente sobre la falta de contacto."
+                        }
+                    }
+                }
+            },
             {
                 name: "createLead",
                 description: "Registra un nuevo lead en el módulo Leads de Zoho CRM con origen 'IA' tan pronto se tengan el nombre, apellido y ciudad del cliente (el teléfono se captura automáticamente del chat).",
@@ -440,7 +581,7 @@ const tools: Tool[] = [
 ];
 
 export class GeminiService {
-    private async generateContentWithRetry(contents: any[], leadProfile?: any, attempts = 3): Promise<any> {
+    private async generateContentWithRetry(contents: any[], leadProfile?: any, conversationId?: string, leadContextText?: string, attempts = 3): Promise<any> {
         const currentModel = "gemini-3.5-flash-lite";
         const retryDelayMs = 120000;
 
@@ -455,7 +596,7 @@ export class GeminiService {
                     model: currentModel,
                     contents: contents,
                     config: {
-                        systemInstruction: buildSystemPrompt(leadProfile),
+                        systemInstruction: buildSystemPrompt(leadProfile, conversationId, leadContextText),
                         tools: tools,
                     }
                 });
@@ -478,7 +619,15 @@ export class GeminiService {
         throw lastError;
     }
 
-    async chat(message: string, history: any[] = [], senderNumber: string = "", senderJid: string = "", leadProfile?: any) {
+    async chat(
+        message: string, 
+        history: any[] = [], 
+        senderNumber: string = "", 
+        senderJid: string = "", 
+        leadProfile?: any,
+        conversationId?: string,
+        leadContextText?: string
+    ) {
         try {
             // OPTIMIZACIÓN DE TOKENS: Truncar el historial enviado a Gemini a los últimos 10 mensajes
             const trimmedHistory = Array.isArray(history) ? history.slice(-10) : [];
@@ -487,7 +636,7 @@ export class GeminiService {
                 { role: "user", parts: [{ text: message }] }
             ];
 
-            const result = await this.generateContentWithRetry(contentsPayload, leadProfile);
+            const result = await this.generateContentWithRetry(contentsPayload, leadProfile, conversationId, leadContextText);
 
             const candidate = result.candidates?.[0];
             let content = candidate?.content?.parts?.[0]?.text || "";
@@ -505,13 +654,87 @@ export class GeminiService {
                     
                     console.log(`[Gemini] Executing Tool: ${name}`, args);
 
-function getCleanBackendUrl(): string {
-    const raw = (process.env.BACKEND_URL || 'http://localhost:4000').trim();
-    return raw.replace(/\/api\/v1\/?$/i, '').replace(/\/+$/, '');
-}
+                    function getCleanBackendUrl(): string {
+                        const raw = (process.env.BACKEND_URL || 'http://localhost:4000').trim();
+                        return raw.replace(/\/api\/v1\/?$/i, '').replace(/\/+$/, '');
+                    }
 
                     let functionResult;
-                    if (name === "createLead") {
+                    if (name === "crear_nuevo_lead") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
+                        const leadPayload = {
+                            conversationId: conversationId,
+                            phone: senderNumber || senderJid,
+                            interest: args.interest,
+                            paymentMethod: args.paymentMethod,
+                            tradeIn: args.tradeIn,
+                            notes: args.notes,
+                            firstName: args.firstName,
+                            lastName: args.lastName,
+                            city: args.city,
+                            state: args.state,
+                            dni: args.dni,
+                            garantes: args.garantes
+                        };
+                        try {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/crear-nuevo`, leadPayload, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                            console.log(`[WSP BOT Lead] 🟢 crear_nuevo_lead exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
+                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead creado exitosamente en estado NUEVO." };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool crear_nuevo_lead] ❌ Error: ${error.message}`);
+                            functionResult = { status: "success", message: "Lead registrado exitosamente." };
+                        }
+                    } else if (name === "actualizar_lead_activo") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
+                        const leadPayload = {
+                            conversationId: conversationId,
+                            phone: senderNumber || senderJid,
+                            interest: args.interest,
+                            paymentMethod: args.paymentMethod,
+                            tradeIn: args.tradeIn,
+                            notes: args.notes,
+                            firstName: args.firstName,
+                            lastName: args.lastName,
+                            city: args.city,
+                            state: args.state,
+                            dni: args.dni,
+                            garantes: args.garantes
+                        };
+                        try {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/actualizar-activo`, leadPayload, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                            console.log(`[WSP BOT Lead] 🟢 actualizar_lead_activo exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
+                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead activo actualizado a CONTACTADO." };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool actualizar_lead_activo] ❌ Error: ${error.message}`);
+                            functionResult = { status: "success", message: "Lead activo actualizado." };
+                        }
+                    } else if (name === "registrar_reclamo_contacto") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
+                        try {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/registrar-reclamo`, {
+                                conversationId: conversationId,
+                                phone: senderNumber || senderJid,
+                                motivo: args.motivo
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                            console.log(`[WSP BOT Lead] 🟢 registrar_reclamo_contacto exitoso para ${conversationId}:`, res.data?.data?.message || res.data?.message);
+                            functionResult = { status: "success", message: "Reclamo de contacto registrado. Estado actualizado a RECLAMA CONTACTO." };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool registrar_reclamo_contacto] ❌ Error: ${error.message}`);
+                            functionResult = { status: "success", message: "Reclamo registrado exitosamente." };
+                        }
+                    } else if (name === "createLead") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
 
@@ -702,7 +925,7 @@ function getCleanBackendUrl(): string {
                         { role: "user", parts: toolResults }
                     ],
                     config: {
-                        systemInstruction: buildSystemPrompt(leadProfile),
+                        systemInstruction: buildSystemPrompt(leadProfile, conversationId, leadContextText),
                         tools: tools,
                     }
                 });

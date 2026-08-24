@@ -385,6 +385,7 @@ class BotWhatsappService {
             const apiKey = getApiKey();
             let leadProfile: any = null;
             let conversationId: string | undefined = undefined;
+            let leadContextText = "";
 
             // 1. Obtener perfil del Lead y sesión activa desde DB
             try {
@@ -406,6 +407,21 @@ class BotWhatsappService {
                         }
                     } catch (targetErr: any) {
                         console.warn(`[WSP BOT LeadProfile Warning] Error consultando target ${target}: ${targetErr.message}`);
+                    }
+                }
+
+                if (conversationId) {
+                    try {
+                        const ctxRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/active-context/${encodeURIComponent(conversationId)}?phone=${encodeURIComponent(senderNumber)}`, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 15000
+                        });
+                        if (ctxRes.data && ctxRes.data.data && ctxRes.data.data.contextText) {
+                            leadContextText = ctxRes.data.data.contextText;
+                            console.log(`[WSP BOT LeadContext] 🟢 Contexto de lead activo cargado:\n${leadContextText}`);
+                        }
+                    } catch (ctxErr: any) {
+                        console.warn(`[WSP BOT LeadContext Warning] Error consultando contexto para ${conversationId}: ${ctxErr.message}`);
                     }
                 }
 
@@ -537,10 +553,10 @@ class BotWhatsappService {
                 return;
             }
 
-            // 3. Generar respuesta de Gemini e inyectar perfil del cliente
+            // 3. Generar respuesta de Gemini e inyectar perfil del cliente y lead activo
             let aiResponse: any;
             try {
-                aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid, leadProfile);
+                aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid, leadProfile, conversationId, leadContextText);
 
                 userStates.set(senderJid, {
                     step: 'CHATTING',
