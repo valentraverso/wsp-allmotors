@@ -399,6 +399,33 @@ class BotWhatsappService {
             const lastHistoryMsg = history.length > 0 ? history[history.length - 1] : null;
             const lastBotText = lastHistoryMsg && lastHistoryMsg.role === 'model' ? (lastHistoryMsg.parts?.[0]?.text || '').toLowerCase() : '';
 
+            // REGLA CRÍTICA ANTI-DUPLICADOS: Si el último mensaje del historial ya fue del bot ('model'),
+            // y el texto entrante ya existía previamente en el historial, descartar de inmediato para no repetir respuestas.
+            if (lastHistoryMsg && lastHistoryMsg.role === 'model') {
+                const cleanIncoming = combinedText.trim().toLowerCase();
+                const wasAlreadyInHistory = history.some(h => {
+                    const hText = (h.text || h.parts?.[0]?.text || '').toString().trim().toLowerCase();
+                    return h.role === 'user' && (hText === cleanIncoming || cleanIncoming.includes(hText) || hText.includes(cleanIncoming));
+                });
+                if (wasAlreadyInHistory) {
+                    console.log(`[WSP BOT Guard] ⏭️ El mensaje de ${senderNumber} ("${combinedText}") ya fue respondido previamente en el historial. Silenciando y sincronizando ATENDIDO en DB.`);
+                    try {
+                        await axios.post(syncUrl, {
+                            jid: senderJid,
+                            phone: senderNumber,
+                            pushName: msg.pushName || "",
+                            conversationId,
+                            replyStatus: 'ATENDIDO',
+                            updatedAt: new Date()
+                        }, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 15000
+                        });
+                    } catch (e) {}
+                    return;
+                }
+            }
+
             if (isOnlyCourtesyOrEmoji(combinedText) && (lastBotText.includes('de nada') || lastBotText.includes('que tengas') || lastBotText.includes('cualquier duda') || /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/u.test(lastBotText))) {
                 console.log(`[WSP BOT Courtesy Cutoff] Bucle de cortesía/emoji detectado para ${senderNumber}. Silenciando respuesta y marcando ATENDIDO en DB.`);
                 try {
@@ -528,6 +555,30 @@ class BotWhatsappService {
             const list = res.data?.conversations;
             if (Array.isArray(list) && list.length > 0) {
                 for (const conv of list) {
+                    const messages = conv.messages || conv.history || [];
+                    const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+
+                    // REGLA CRÍTICA: Si el último mensaje es del bot ('model'), NO está pendiente. Marcar como ATENDIDO de inmediato.
+                    if (lastMsg && lastMsg.role === 'model') {
+                        cleanedCount++;
+                        console.log(`[WSP BOT Init Clean] ⏭️ Conversación de ${conv.phone || conv.jid} ya tiene respuesta del bot como último mensaje. Marcando ATENDIDO en DB.`);
+                        try {
+                            await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                jid: conv.jid,
+                                phone: conv.phone,
+                                conversationId: conv.conversationId,
+                                replyStatus: 'ATENDIDO',
+                                updatedAt: new Date()
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 10000
+                            });
+                        } catch (err: any) {
+                            console.warn(`[WSP BOT Init Clean Error] Error marcando atendido a ${conv.phone}: ${err.message}`);
+                        }
+                        continue;
+                    }
+
                     const lastTime = conv.lastMessageAt || conv.updatedAt || conv.createdAt;
                     const ageMs = lastTime ? (now - new Date(lastTime).getTime()) : (maxAgeMs + 1);
                     
@@ -553,7 +604,7 @@ class BotWhatsappService {
                         }
                     }
                 }
-                console.log(`[WSP BOT Init Clean] ✅ Limpieza individual finalizada. ${cleanedCount} conversación(es) antigua(s) pasada(s) a ATENDIDO.`);
+                console.log(`[WSP BOT Init Clean] ✅ Limpieza individual finalizada. ${cleanedCount} conversación(es) pasada(s) a ATENDIDO.`);
             } else {
                 console.log(`[WSP BOT Init Clean] ✅ No se encontraron conversaciones pendientes antiguas.`);
             }
@@ -591,17 +642,23 @@ class BotWhatsappService {
 
                     const messages = conv.messages || conv.history || [];
                     const lastMsg = messages.length > 0 ? messages[messages.length - 1] : null;
-                    
-                    let lastText = "";
-                    let isUserRole = false;
 
-                    if (lastMsg) {
-                        if (lastMsg.role === 'user') isUserRole = true;
-                        if (typeof lastMsg.text === 'string' && lastMsg.text.trim()) {
-                            lastText = lastMsg.text.trim();
-                        } else if (Array.isArray(lastMsg.parts) && lastMsg.parts[0]?.text) {
-                            lastText = lastMsg.parts[0].text.trim();
-                        }
+                    // Si el último mensaje es del bot, no hay nada pendiente de responder
+                    if (lastMsg && lastMsg.role === 'model') {
+                        console.log(`[WSP BOT Recovery] Conversación de ${conv.phone || conv.jid} ya tiene respuesta del bot como último mensaje. Marcando ATENDIDO en DB.`);
+                        try {
+                            await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                jid: conv.jid,
+                                phone: conv.phone,
+                                conversationId: conv.conversationId,
+                                replyStatus: 'ATENDIDO',
+                                updatedAt: new Date()
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                        } catch (syncErr: any) {}
+                        continue;
                     }
 
                     console.log(`[WSP BOT Recovery] Marcando conversación de ${conv.phone || conv.jid} como ATENDIDO en DB para prevenir reintentos duplicados.`);
