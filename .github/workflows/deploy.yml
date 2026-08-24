@@ -22,7 +22,6 @@ jobs:
             export NVM_DIR="$HOME/.nvm"
             [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
             cd /var/www/wsp
-            git pull origin main
             npm install --no-audit --no-fund
             cd internal && npm install --no-audit --no-fund && npm run build && cd ..
             cd bot && npm install --no-audit --no-fund && npm run build && cd ..
