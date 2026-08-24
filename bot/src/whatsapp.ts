@@ -288,13 +288,16 @@ class BotWhatsappService {
                         continue;
                     }
 
-                    // Agrupación ráfaga inteligente (Debounce dinámico 7s para consolidar N mensajes en 1 sola respuesta)
+                    // Agrupación ráfaga inteligente (Debounce dinámico 15s a 30s reseteado a partir del último mensaje recibido)
+                    const computeBatchDelay = () => Math.floor(Math.random() * (30000 - 15000 + 1)) + 15000;
+
                     const existingBatch = userMessageBatches.get(userKey);
                     if (existingBatch) {
                         if (existingBatch.timer) clearTimeout(existingBatch.timer);
                         existingBatch.messages.push(textMessage.trim());
                         existingBatch.msgObj = msg;
-                        console.log(`[WSP BOT Batch] 🔄 Agregando mensaje a la ráfaga de ${userKey} (Total: ${existingBatch.messages.length}): "${textMessage.trim()}"`);
+                        const batchDelay = computeBatchDelay();
+                        console.log(`[WSP BOT Batch] 🔄 Nuevo mensaje de ${userKey}. Ráfaga reseteada a ${(batchDelay / 1000).toFixed(1)}s (Total mensajes acumulados: ${existingBatch.messages.length}): "${textMessage.trim()}"`);
                         
                         existingBatch.timer = setTimeout(async () => {
                             const current = userMessageBatches.get(userKey);
@@ -306,9 +309,10 @@ class BotWhatsappService {
                             const finalNumber = current.senderNumber;
                             userMessageBatches.delete(userKey);
                             await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
-                        }, 7000);
+                        }, batchDelay);
                     } else {
-                        console.log(`[WSP BOT Batch] 🕒 Iniciando ráfaga de 7s para ${userKey}: "${textMessage.trim()}"`);
+                        const batchDelay = computeBatchDelay();
+                        console.log(`[WSP BOT Batch] 🕒 Iniciando ráfaga de ${(batchDelay / 1000).toFixed(1)}s para ${userKey}: "${textMessage.trim()}"`);
                         const timer = setTimeout(async () => {
                             const current = userMessageBatches.get(userKey);
                             if (current) {
@@ -320,7 +324,7 @@ class BotWhatsappService {
                                 userMessageBatches.delete(userKey);
                                 await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
                             }
-                        }, 7000);
+                        }, batchDelay);
 
                         userMessageBatches.set(userKey, {
                             messages: [textMessage.trim()],
@@ -338,6 +342,7 @@ class BotWhatsappService {
             this.isInitializing = false;
             setTimeout(() => this.init(), 10000);
         }
+
     }
 
     private getCleanBackendUrl(): string {
@@ -464,6 +469,7 @@ class BotWhatsappService {
 
             // 2. Marcar estado como PENDIENTE en DB al recibir mensaje
             const syncUrl = `${backendUrl}/api/v1/crm/chat/sync`;
+            const latestClientMsg = (combinedText.split('\n').pop() || combinedText).trim();
             try {
                 await axios.post(syncUrl, {
                     jid: senderJid,
@@ -471,7 +477,7 @@ class BotWhatsappService {
                     pushName: msg.pushName || "",
                     conversationId,
                     replyStatus: 'PENDIENTE',
-                    lastMessage: combinedText,
+                    lastMessage: latestClientMsg,
                     updatedAt: new Date()
                 }, {
                     headers: { 'x-api-key': apiKey },
@@ -480,6 +486,7 @@ class BotWhatsappService {
             } catch (err: any) {
                 // ignore
             }
+
 
             // Corte de bucle de cortesía / emojis
             const isOnlyCourtesyOrEmoji = (text: string): boolean => {
@@ -565,17 +572,31 @@ class BotWhatsappService {
                 });
 
                 if (aiResponse.text && aiResponse.text.trim()) {
-                    // Retardo aleatorio humano dinámico entre 3s y 8s (para respuesta natural pero fluida)
-                    const minDelay = 3000;
-                    const maxDelay = 8000;
+                    // Retardo aleatorio humano dinámico entre 15s y 30s
+                    const minDelay = 15000;
+                    const maxDelay = 30000;
                     const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
                     const delaySeconds = (randomDelay / 1000).toFixed(1);
                     console.log(`[WSP BOT Delay] Espera humana de ${delaySeconds}s antes de enviar respuesta a ${senderNumber}...`);
                     
+                    // Activar presencia "Escribiendo..." en WhatsApp
+                    if (this.sock) {
+                        try {
+                            await this.sock.sendPresenceUpdate('composing', senderJid);
+                        } catch (presErr) {}
+                    }
+
                     await new Promise(resolve => setTimeout(resolve, randomDelay));
                     
                     // Enviar mensaje por socket de WhatsApp
                     await this.sendMessage(senderJid, aiResponse.text.trim());
+
+                    // Desactivar presencia "Escribiendo..."
+                    if (this.sock) {
+                        try {
+                            await this.sock.sendPresenceUpdate('paused', senderJid);
+                        } catch (presErr) {}
+                    }
                     
                     // 4. ÚNICAMENTE TRAS ENVIAR EL MENSAJE CON ÉXITO: Sincronizar en DB
                     // REGLA: ATENDIDO = conversaciones cerradas / concluidas. PENDIENTE = conversación en curso activa.
@@ -585,7 +606,7 @@ class BotWhatsappService {
                         pushName: msg.pushName || "",
                         conversationId,
                         history: aiResponse.newHistory,
-                        lastMessage: combinedText,
+                        lastMessage: aiResponse.text.trim() || latestClientMsg,
                         replyStatus: isClosedSession ? 'ATENDIDO' : 'PENDIENTE',
                         status: isClosedSession ? 'CLOSED' : 'ACTIVE',
                         closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
@@ -599,6 +620,7 @@ class BotWhatsappService {
                 } else {
                     console.warn(`[WSP BOT Warning] Gemini devolvió respuesta vacía para ${senderNumber}. Se mantiene estado PENDIENTE.`);
                 }
+
             } catch (responseErr: any) {
                 console.error(`[WSP BOT Error] Falló el procesamiento o envío de respuesta para ${senderNumber}: ${responseErr.message}. La conversación SE MANTIENE PENDIENTE en DB.`);
                 
