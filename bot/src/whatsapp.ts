@@ -59,6 +59,13 @@ class BotWhatsappService {
         try {
             console.log('[WSP BOT] Initializing Commercial AI Bot Service...');
             
+            // Limpieza proactiva de pendientes antiguos (> 2 días) antes de abrir socket y escuchar mensajes
+            try {
+                await this.cleanupStalePendingConversations(2);
+            } catch (cleanErr: any) {
+                console.warn(`[WSP BOT Init Clean Error]: ${cleanErr.message}`);
+            }
+
             if (this.sock) {
                 try {
                     this.sock.ev.removeAllListeners('connection.update');
@@ -127,7 +134,13 @@ class BotWhatsappService {
                     this.qr = null;
                     this.isInitializing = false;
                     console.log(`✓ [WSP BOT] WhatsApp Commercial AI Bot connected successfully!`);
-                    setTimeout(() => this.recoverPendingConversations(), 5000);
+                    
+                    // 1. Limpiar chats pendientes con más de 2 días ANTES de procesar o recuperar respuestas
+                    this.cleanupStalePendingConversations(2).then(() => {
+                        setTimeout(() => this.recoverPendingConversations(), 5000);
+                    }).catch(() => {
+                        setTimeout(() => this.recoverPendingConversations(), 5000);
+                    });
 
                     if (!this.cronTimer) {
                         console.log(`[WSP BOT Cron] 🕒 Programando cron de recuperación cada 10 minutos para responder mensajes pendientes.`);
@@ -172,6 +185,39 @@ class BotWhatsappService {
                                        msg.message.imageMessage?.caption || '';
 
                     if (!textMessage.trim()) continue;
+
+                    // Descartar mensajes recibidos con más de 2 días de antigüedad (ej: mensajes offline o sincronizados viejos)
+                    const rawTimestamp = msg.messageTimestamp;
+                    const msgTimestamp = typeof rawTimestamp === 'number' 
+                        ? rawTimestamp * 1000 
+                        : (typeof (rawTimestamp as any)?.low === 'number' ? (rawTimestamp as any).low * 1000 : Date.now());
+                    const msgAgeMs = Date.now() - msgTimestamp;
+                    const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
+
+                    if (msgAgeMs >= TWO_DAYS_MS) {
+                        const daysOld = (msgAgeMs / (1000 * 60 * 60 * 24)).toFixed(1);
+                        console.log(`[WSP BOT Upsert] ⏭️ Mensaje de ${senderNumber} recibido con ${daysOld} días de antigüedad (>= 2 días). Sincronizado como ATENDIDO para no responder.`);
+                        try {
+                            const backendUrl = this.getCleanBackendUrl();
+                            const apiKey = getApiKey();
+                            await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                jid: senderJid,
+                                phone: senderNumber,
+                                pushName: msg.pushName || "",
+                                lastMessage: textMessage,
+                                replyStatus: 'ATENDIDO',
+                                status: 'CLOSED',
+                                closeReason: 'INACTIVITY',
+                                updatedAt: new Date(msgTimestamp)
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                        } catch (syncErr: any) {
+                            // ignore
+                        }
+                        continue;
+                    }
 
                     // Sincronizar inmediatamente a DB con estado PENDIENTE apenas ingresa el mensaje (sin lastMessage prematuro)
                     try {
@@ -448,6 +494,73 @@ class BotWhatsappService {
             this.processingUsers.delete(senderJid);
             if (senderNumber) this.processingUsers.delete(senderNumber);
         }
+    }
+
+    public async cleanupStalePendingConversations(maxDays: number = 2): Promise<number> {
+        const backendUrl = this.getCleanBackendUrl();
+        const apiKey = getApiKey();
+        const maxAgeMs = maxDays * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+
+        console.log(`[WSP BOT Init Clean] 🧹 Verificando y limpiando chats pendientes con más de ${maxDays} días de antigüedad antes de responder...`);
+
+        // 1. Intentar endpoint dedicado masivo en backend
+        try {
+            const cleanRes = await axios.post(`${backendUrl}/api/v1/crm/conversations/cleanup-stale`, { maxDays }, {
+                headers: { 'x-api-key': apiKey },
+                timeout: 10000
+            });
+            if (cleanRes.data && typeof cleanRes.data.count === 'number') {
+                console.log(`[WSP BOT Init Clean] ✅ Limpieza masiva en backend: ${cleanRes.data.count} conversación(es) antigua(s) pasada(s) a ATENDIDO.`);
+                return cleanRes.data.count;
+            }
+        } catch (e: any) {
+            // Fallback por lista si el backend no cuenta con el endpoint actualizado
+        }
+
+        // 2. Fallback: Traer pendientes y limpiar individualmente
+        let cleanedCount = 0;
+        try {
+            const res = await axios.get(`${backendUrl}/api/v1/crm/conversation/pending`, {
+                headers: { 'x-api-key': apiKey },
+                timeout: 15000
+            });
+            const list = res.data?.conversations;
+            if (Array.isArray(list) && list.length > 0) {
+                for (const conv of list) {
+                    const lastTime = conv.lastMessageAt || conv.updatedAt || conv.createdAt;
+                    const ageMs = lastTime ? (now - new Date(lastTime).getTime()) : (maxAgeMs + 1);
+                    
+                    if (ageMs >= maxAgeMs) {
+                        cleanedCount++;
+                        const ageDays = (ageMs / (1000 * 60 * 60 * 24)).toFixed(1);
+                        console.log(`[WSP BOT Init Clean] ⏭️ Conversación de ${conv.phone || conv.jid} tiene ${ageDays} días de inactividad (>= ${maxDays} días). Marcando ATENDIDO para no responder.`);
+                        try {
+                            await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                jid: conv.jid,
+                                phone: conv.phone,
+                                conversationId: conv.conversationId,
+                                replyStatus: 'ATENDIDO',
+                                status: 'CLOSED',
+                                closeReason: 'INACTIVITY',
+                                updatedAt: new Date()
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 10000
+                            });
+                        } catch (err: any) {
+                            console.warn(`[WSP BOT Init Clean Error] Error marcando atendido a ${conv.phone}: ${err.message}`);
+                        }
+                    }
+                }
+                console.log(`[WSP BOT Init Clean] ✅ Limpieza individual finalizada. ${cleanedCount} conversación(es) antigua(s) pasada(s) a ATENDIDO.`);
+            } else {
+                console.log(`[WSP BOT Init Clean] ✅ No se encontraron conversaciones pendientes antiguas.`);
+            }
+        } catch (err: any) {
+            console.warn(`[WSP BOT Init Clean Warning] Error verificando pendientes: ${err.message}`);
+        }
+        return cleanedCount;
     }
 
     public async recoverPendingConversations(): Promise<void> {

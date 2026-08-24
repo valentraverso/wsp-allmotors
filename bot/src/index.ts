@@ -26,10 +26,37 @@ const originalWarn = console.warn;
 const originalError = console.error;
 const originalInfo = console.info;
 
-console.log = (...args: any[]) => originalLog(`[${getArgentinaTimestamp()}]`, ...args);
-console.warn = (...args: any[]) => originalWarn(`[${getArgentinaTimestamp()}]`, ...args);
-console.error = (...args: any[]) => originalError(`[${getArgentinaTimestamp()}]`, ...args);
-console.info = (...args: any[]) => originalInfo(`[${getArgentinaTimestamp()}]`, ...args);
+function shouldFilterLog(args: any[]): boolean {
+    for (const arg of args) {
+        if (typeof arg === 'string') {
+            if (arg.includes('Closing session:') || arg.includes('Closing stale open session') || arg.includes('SessionEntry')) {
+                return true;
+            }
+        } else if (arg && typeof arg === 'object') {
+            if (arg.constructor?.name === 'SessionEntry' || ('_chains' in arg && 'registrationId' in arg)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+console.log = (...args: any[]) => {
+    if (shouldFilterLog(args)) return;
+    originalLog(`[${getArgentinaTimestamp()}]`, ...args);
+};
+console.warn = (...args: any[]) => {
+    if (shouldFilterLog(args)) return;
+    originalWarn(`[${getArgentinaTimestamp()}]`, ...args);
+};
+console.error = (...args: any[]) => {
+    if (shouldFilterLog(args)) return;
+    originalError(`[${getArgentinaTimestamp()}]`, ...args);
+};
+console.info = (...args: any[]) => {
+    if (shouldFilterLog(args)) return;
+    originalInfo(`[${getArgentinaTimestamp()}]`, ...args);
+};
 
 dotenv.config({ path: path.resolve(process.cwd(), '.env'), override: true });
 dotenv.config({ path: path.join(__dirname, '../.env') });
