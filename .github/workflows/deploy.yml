@@ -11,7 +11,21 @@ jobs:
     name: 📱 Deploy WSP to VPS
     runs-on: ubuntu-latest
     steps:
-      - name: 🔄 Ejecutar Deploy en VPS vía SSH
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 📤 Transferir archivos a la VPS vía SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          source: "./*"
+          target: "/var/www/wsp"
+          rm: false
+
+      - name: 🔄 Ejecutar Build y Reiniciar PM2 en VPS vía SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -27,5 +41,6 @@ jobs:
             cd bot && npm install --no-audit --no-fund && npm run build && cd ..
             pm2 restart ecosystem.config.js --update-env || pm2 start ecosystem.config.js
             pm2 save
+
 
 
