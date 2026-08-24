@@ -22,6 +22,7 @@ import FormData from 'form-data';
 
 dotenv.config({ path: path.join(__dirname, '../.env') });
 
+const BOT_BOOT_TIME = Date.now();
 const groupCache = new Map<string, any>();
 const userStates = new Map<string, { step: string; history: any[]; lastActivity?: number }>();
 const userMessageBatches = new Map<string, { messages: string[]; timer: NodeJS.Timeout; msgObj: any }>();
@@ -186,14 +187,28 @@ class BotWhatsappService {
 
                     if (!textMessage.trim()) continue;
 
-                    // Descartar mensajes recibidos con más de 2 días de antigüedad (ej: mensajes offline o sincronizados viejos)
+                    // Resolver timestamp real del mensaje de Baileys
                     const rawTimestamp = msg.messageTimestamp;
-                    const msgTimestamp = typeof rawTimestamp === 'number' 
-                        ? rawTimestamp * 1000 
-                        : (typeof (rawTimestamp as any)?.low === 'number' ? (rawTimestamp as any).low * 1000 : Date.now());
+                    let msgTimestamp = Date.now();
+                    if (rawTimestamp) {
+                        if (typeof rawTimestamp === 'number') {
+                            msgTimestamp = rawTimestamp > 1e11 ? rawTimestamp : rawTimestamp * 1000;
+                        } else if (typeof (rawTimestamp as any)?.low === 'number') {
+                            msgTimestamp = (rawTimestamp as any).low * 1000;
+                        } else if (typeof (rawTimestamp as any)?.toNumber === 'function') {
+                            msgTimestamp = (rawTimestamp as any).toNumber() * 1000;
+                        } else {
+                            const num = Number(rawTimestamp);
+                            if (!isNaN(num) && num > 0) {
+                                msgTimestamp = num > 1e11 ? num : num * 1000;
+                            }
+                        }
+                    }
+
                     const msgAgeMs = Date.now() - msgTimestamp;
                     const TWO_DAYS_MS = 2 * 24 * 60 * 60 * 1000;
 
+                    // 1. Descartar mensajes con más de 2 días de antigüedad
                     if (msgAgeMs >= TWO_DAYS_MS) {
                         const daysOld = (msgAgeMs / (1000 * 60 * 60 * 24)).toFixed(1);
                         console.log(`[WSP BOT Upsert] ⏭️ Mensaje de ${senderNumber} recibido con ${daysOld} días de antigüedad (>= 2 días). Sincronizado como ATENDIDO para no responder.`);
@@ -211,11 +226,32 @@ class BotWhatsappService {
                                 updatedAt: new Date(msgTimestamp)
                             }, {
                                 headers: { 'x-api-key': apiKey },
-                                timeout: 15000
+                                timeout: 10000
                             });
-                        } catch (syncErr: any) {
-                            // ignore
-                        }
+                        } catch (syncErr: any) {}
+                        continue;
+                    }
+
+                    // 2. ESCUDO ANTI-REPETICIÓN POR RECONEXIÓN:
+                    // Si el mensaje fue enviado antes de que arrancara esta instancia del bot (con 15s de margen),
+                    // es un replay/historial recibido por reconexión del socket de WhatsApp. Sincronizar como ATENDIDO y no responder.
+                    if (msgTimestamp < (BOT_BOOT_TIME - 15000)) {
+                        console.log(`[WSP BOT Replay Guard] ⏭️ Mensaje de ${senderNumber} recibido en reconexión (${new Date(msgTimestamp).toLocaleString('es-AR')}) es previo al inicio del bot. Sincronizando como ATENDIDO para no responder.`);
+                        try {
+                            const backendUrl = this.getCleanBackendUrl();
+                            const apiKey = getApiKey();
+                            await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                jid: senderJid,
+                                phone: senderNumber,
+                                pushName: msg.pushName || "",
+                                lastMessage: textMessage,
+                                replyStatus: 'ATENDIDO',
+                                updatedAt: new Date(msgTimestamp)
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 10000
+                            });
+                        } catch (syncErr: any) {}
                         continue;
                     }
 
@@ -388,10 +424,12 @@ class BotWhatsappService {
                 return isPureEmoji || (cleaned.length < 25 && courtesyWords.some(w => cleaned.includes(w)));
             };
 
-            // Detección de indicios de cierre de conversación
+            // Detección de indicios de cierre de conversación o respuestas negativas concluyentes
             const isGoodbyeSignal = (text: string): boolean => {
-                const cleaned = text.trim().toLowerCase();
-                const goodbyeWords = ['hablamos mañana', 'hasta mañana', 'nos vemos mañana', 'chau', 'chau gracias', 'muchas gracias chau', 'nada mas', 'nada más', 'no necesito nada mas', 'no por ahora'];
+                const cleaned = text.trim().toLowerCase().replace(/[^\w\s]/gi, '').trim();
+                const exactNegatives = ['no', 'nop', 'nada', 'ninguna', 'ninguno', 'listo', 'ya esta', 'ya esta gracias', 'por ahora no', 'nada mas', 'no gracias', 'no por ahora', 'no nada mas', 'ninguna duda', 'todo claro', 'perfecto gracias', 'chau', 'chau gracias', 'muchas gracias chau', 'hasta luego', 'hablamos mañana', 'hasta mañana', 'nos vemos'];
+                if (exactNegatives.includes(cleaned)) return true;
+                const goodbyeWords = ['hablamos mañana', 'hasta mañana', 'nos vemos mañana', 'chau', 'chau gracias', 'muchas gracias chau', 'nada mas', 'nada más', 'no necesito nada mas', 'no por ahora', 'por ahora nada', 'no gracias'];
                 return goodbyeWords.some(w => cleaned.includes(w));
             };
             const isClosedSession = isGoodbyeSignal(combinedText);
@@ -408,14 +446,16 @@ class BotWhatsappService {
                     return h.role === 'user' && (hText === cleanIncoming || cleanIncoming.includes(hText) || hText.includes(cleanIncoming));
                 });
                 if (wasAlreadyInHistory) {
-                    console.log(`[WSP BOT Guard] ⏭️ El mensaje de ${senderNumber} ("${combinedText}") ya fue respondido previamente en el historial. Silenciando y sincronizando ATENDIDO en DB.`);
+                    console.log(`[WSP BOT Guard] ⏭️ El mensaje de ${senderNumber} ("${combinedText}") ya fue respondido previamente en el historial. Silenciando y sincronizando.`);
                     try {
                         await axios.post(syncUrl, {
                             jid: senderJid,
                             phone: senderNumber,
                             pushName: msg.pushName || "",
                             conversationId,
-                            replyStatus: 'ATENDIDO',
+                            replyStatus: isClosedSession ? 'ATENDIDO' : 'PENDIENTE',
+                            status: isClosedSession ? 'CLOSED' : 'ACTIVE',
+                            closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
                             updatedAt: new Date()
                         }, {
                             headers: { 'x-api-key': apiKey },
@@ -427,7 +467,7 @@ class BotWhatsappService {
             }
 
             if (isOnlyCourtesyOrEmoji(combinedText) && (lastBotText.includes('de nada') || lastBotText.includes('que tengas') || lastBotText.includes('cualquier duda') || /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/u.test(lastBotText))) {
-                console.log(`[WSP BOT Courtesy Cutoff] Bucle de cortesía/emoji detectado para ${senderNumber}. Silenciando respuesta y marcando ATENDIDO en DB.`);
+                console.log(`[WSP BOT Courtesy Cutoff] Bucle de cortesía/emoji detectado para ${senderNumber}. Silenciando respuesta, cerrando sesión y marcando ATENDIDO en DB.`);
                 try {
                     await axios.post(syncUrl, {
                         jid: senderJid,
@@ -435,6 +475,8 @@ class BotWhatsappService {
                         pushName: msg.pushName || "",
                         conversationId,
                         replyStatus: 'ATENDIDO',
+                        status: 'CLOSED',
+                        closeReason: 'USER_GOODBYE',
                         updatedAt: new Date()
                     }, {
                         headers: { 'x-api-key': apiKey },
@@ -470,7 +512,8 @@ class BotWhatsappService {
                     // Enviar mensaje por socket de WhatsApp
                     await this.sendMessage(senderJid, aiResponse.text.trim());
                     
-                    // 4. ÚNICAMENTE TRAS ENVIAR EL MENSAJE CON ÉXITO: Marcar como ATENDIDO en DB
+                    // 4. ÚNICAMENTE TRAS ENVIAR EL MENSAJE CON ÉXITO: Sincronizar en DB
+                    // REGLA: ATENDIDO = conversaciones cerradas / concluidas. PENDIENTE = conversación en curso activa.
                     const syncPayload = {
                         jid: senderJid,
                         phone: senderNumber,
@@ -478,7 +521,7 @@ class BotWhatsappService {
                         conversationId,
                         history: aiResponse.newHistory,
                         lastMessage: combinedText,
-                        replyStatus: 'ATENDIDO',
+                        replyStatus: isClosedSession ? 'ATENDIDO' : 'PENDIENTE',
                         status: isClosedSession ? 'CLOSED' : 'ACTIVE',
                         closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
                         updatedAt: new Date()
@@ -529,7 +572,7 @@ class BotWhatsappService {
         const maxAgeMs = maxDays * 24 * 60 * 60 * 1000;
         const now = Date.now();
 
-        console.log(`[WSP BOT Init Clean] 🧹 Verificando y limpiando chats pendientes con más de ${maxDays} días de antigüedad antes de responder...`);
+        console.log(`[WSP BOT Init Clean] 🧹 Verificando chats pendientes al iniciar: pasando a ATENDIDO si tienen >${maxDays} días o si su último mensaje ya es del bot...`);
 
         // 1. Intentar endpoint dedicado masivo en backend
         try {
