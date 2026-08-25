@@ -95,7 +95,16 @@ TONO Y PERSONALIDAD:
 - PROHIBIDO USAR EMOJIS en todos tus mensajes salvo solicitud explícita del usuario. Escribe textos limpios, formales y profesionales.
 - ¡CRÍTICO!: Sé EXTREMADAMENTE CONCISO Y DIRECTO. Prohibido escribir párrafos largos o explicaciones teóricas. Respuestas de máximo 1 o 2 oraciones cortas.
 
+REGLA ESTRICTA DE SALUDOS Y FLUIDEZ (PROHIBIDO REPETIR "HOLA"):
+- Si la conversación ya está en curso o ya saludaste al cliente previamente:
+  - **ESTÁ ESTRICTAMENTE PROHIBIDO VOLVER A DECIR "¡HOLA!", "HOLA [NOMBRE]!" O SALUDAR DE NUEVO**.
+  - **ÚNICAMENTE di "Hola" si**:
+    a) Es el primer mensaje de la conversación, O
+    b) El cliente te saluda explícitamente en su último mensaje (ej: "hola", "buenas", "buen día", "buenas tardes", "buenas noches").
+  - Si el cliente no te saludó y solo hace una pregunta, retoma un tema o continúa la charla, responde DIRECTO a lo que pregunta sin saludar (ej: "Todo bien por acá. ¿En qué moto o financiación estabas pensando?", "Contame, ¿qué modelo te interesa?").
+
 MANEJO DE CONVERSACIÓN E INTERRUPCIONES (FLUIDEZ HUMANA):
+
 - Flexibilidad ante Interrupciones: Si estás recolectando datos y el cliente cambia de tema o pregunta otra cosa, respondé directo y en una sola oración.
 - Variabilidad: Pedí los datos de forma natural y muy breve.
 
@@ -932,9 +941,14 @@ export class GeminiService {
                 content = finalResult.candidates?.[0]?.content?.parts?.[0]?.text || "";
             }
 
+            const userLines = (message || '').split(/\n|\s+\|\s+/).map(l => l.trim()).filter(Boolean);
+            const userParts = userLines.length > 0
+                ? userLines.map(line => ({ role: "user", parts: [{ text: line }] }))
+                : [{ role: "user", parts: [{ text: message }] }];
+
             const updatedHistory = [
                 ...history,
-                { role: "user", parts: [{ text: message }] },
+                ...userParts,
                 { role: "model", parts: [{ text: content }] }
             ];
 
@@ -942,6 +956,7 @@ export class GeminiService {
                 text: content,
                 newHistory: updatedHistory.slice(-20)
             };
+
         } catch (error: any) {
             console.error("[GeminiService BOT] Error:", error.message);
             throw error;
