@@ -256,7 +256,7 @@ class BotWhatsappService {
                         continue;
                     }
 
-                    // Sincronizar inmediatamente a DB con estado PENDIENTE apenas ingresa el mensaje (sin lastMessage prematuro)
+                    // Sincronizar inmediatamente el mensaje individual del cliente a DB con estado PENDIENTE
                     try {
                         const backendUrl = this.getCleanBackendUrl();
                         const apiKey = getApiKey();
@@ -265,15 +265,22 @@ class BotWhatsappService {
                             phone: senderNumber,
                             pushName: msg.pushName || "",
                             replyStatus: 'PENDIENTE',
-                            updatedAt: new Date()
+                            lastMessage: textMessage.trim(),
+                            messages: [{
+                                role: 'user',
+                                text: textMessage.trim(),
+                                timestamp: new Date(msgTimestamp)
+                            }],
+                            updatedAt: new Date(msgTimestamp)
                         }, {
                             headers: { 'x-api-key': apiKey },
                             timeout: 15000
                         });
-                        console.log(`[WSP BOT Sync] 🟢 Mensaje de ${senderNumber} registrado inmediatamente en DB con estado PENDIENTE`);
+                        console.log(`[WSP BOT Sync] 🟢 Mensaje individual de ${senderNumber} registrado en DB: "${textMessage.trim()}"`);
                     } catch (syncErr: any) {
                         // ignore non-critical sync errors
                     }
+
 
                     // Identificador único de usuario (unificando teléfono numérico y JID para evitar colisiones entre @lid y @s.whatsapp.net)
                     const userKey = (senderNumber || senderJid).trim();
@@ -598,15 +605,19 @@ class BotWhatsappService {
                         } catch (presErr) {}
                     }
                     
-                    // 4. ÚNICAMENTE TRAS ENVIAR EL MENSAJE CON ÉXITO: Sincronizar en DB
+                    // 4. ÚNICAMENTE TRAS ENVIAR EL MENSAJE CON ÉXITO: Sincronizar respuesta del bot en DB
                     // REGLA: ATENDIDO = conversaciones cerradas / concluidas. PENDIENTE = conversación en curso activa.
                     const syncPayload = {
                         jid: senderJid,
                         phone: senderNumber,
                         pushName: msg.pushName || "",
                         conversationId,
-                        history: aiResponse.newHistory,
-                        lastMessage: aiResponse.text.trim() || latestClientMsg,
+                        messages: [{
+                            role: 'model',
+                            text: aiResponse.text.trim(),
+                            timestamp: new Date()
+                        }],
+                        lastMessage: aiResponse.text.trim(),
                         replyStatus: isClosedSession ? 'ATENDIDO' : 'PENDIENTE',
                         status: isClosedSession ? 'CLOSED' : 'ACTIVE',
                         closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
@@ -617,6 +628,7 @@ class BotWhatsappService {
                         headers: { 'x-api-key': apiKey },
                         timeout: 15000
                     });
+
                 } else {
                     console.warn(`[WSP BOT Warning] Gemini devolvió respuesta vacía para ${senderNumber}. Se mantiene estado PENDIENTE.`);
                 }
