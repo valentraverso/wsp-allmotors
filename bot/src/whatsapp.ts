@@ -800,21 +800,36 @@ class BotWhatsappService {
                         continue;
                     }
 
-                    console.log(`[WSP BOT Recovery] Marcando conversación de ${conv.phone || conv.jid} como ATENDIDO en DB para prevenir reintentos duplicados.`);
-                    try {
-                        await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
-                            jid: conv.jid,
-                            phone: conv.phone,
-                            conversationId: conv.conversationId,
-                            replyStatus: 'ATENDIDO',
-                            updatedAt: new Date()
-                        }, {
-                            headers: { 'x-api-key': apiKey },
-                            timeout: 15000
-                        });
-                    } catch (syncErr: any) {
-                        console.error(`[WSP BOT Recovery Sync Error]: ${syncErr.message}`);
+                    // Si el último mensaje es del usuario, procesar y responder activamente
+                    if (lastMsg && lastMsg.role === 'user') {
+                        const userKey = (conv.phone || conv.jid).trim();
+                        const lastTime = conv.updatedAt || conv.lastMessageAt || conv.createdAt;
+                        const elapsedMs = lastTime ? (Date.now() - new Date(lastTime).getTime()) : 999999;
+                        const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+                        if (elapsedMs > ONE_DAY_MS) {
+                            console.log(`[WSP BOT Recovery] ⏭️ Conversación de ${userKey} tiene más de 24hs sin respuesta. Marcando ATENDIDO por inactividad.`);
+                            try {
+                                await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                    jid: conv.jid,
+                                    phone: conv.phone,
+                                    conversationId: conv.conversationId,
+                                    replyStatus: 'ATENDIDO',
+                                    status: 'CLOSED',
+                                    closeReason: 'INACTIVITY',
+                                    updatedAt: new Date()
+                                }, {
+                                    headers: { 'x-api-key': apiKey },
+                                    timeout: 15000
+                                });
+                            } catch (syncErr: any) {}
+                            continue;
+                        }
+
+                        console.log(`[WSP BOT Recovery] 🚀 Procesando y respondiendo mensaje pendiente de ${userKey}: "${lastMsg.text}"`);
+                        await this.processUserMessage(userKey, conv.jid, conv.phone || '', lastMsg.text, { pushName: conv.pushName || '' });
                     }
+
                 }
             } else {
                 console.log(`[WSP BOT Recovery] No hay conversaciones pendientes de respuesta.`);
