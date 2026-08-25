@@ -225,20 +225,39 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 Sé directo, servicial, ultra conciso y 100% enfocado en resolver rápido.
 `;
 
-function getBusinessHoursInfo() {
-    const now = new Date();
-    const argTimeString = now.toLocaleString("en-US", { timeZone: "America/Argentina/Buenos_Aires" });
-    const argDate = new Date(argTimeString);
+function getBusinessHoursInfo(date: Date = new Date()) {
+    const formatter = new Intl.DateTimeFormat('es-AR', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        weekday: 'long',
+        hour: 'numeric',
+        minute: 'numeric',
+        hour12: false
+    });
+    const parts = formatter.formatToParts(date);
+    const map: Record<string, string> = {};
+    for (const p of parts) map[p.type] = p.value;
 
-    const dayOfWeek = argDate.getDay();
-    const hours = argDate.getHours();
-    const minutes = argDate.getMinutes();
+    const dayOfWeekMap: Record<string, number> = {
+        'domingo': 0, 'lunes': 1, 'martes': 2, 'miércoles': 3, 'miercoles': 3,
+        'jueves': 4, 'viernes': 5, 'sábado': 6, 'sabado': 6
+    };
+    const rawWeekday = (map.weekday || '').toLowerCase().trim();
+    const dayOfWeek = dayOfWeekMap[rawWeekday] ?? date.getDay();
+    const dayName = map.weekday ? (map.weekday.charAt(0).toUpperCase() + map.weekday.slice(1)) : 'Hoy';
+
+    const hours = parseInt(map.hour, 10) || 0;
+    const minutes = parseInt(map.minute, 10) || 0;
     const currentMinutes = hours * 60 + minutes;
+
+    const formattedHours = String(hours).padStart(2, '0');
+    const formattedMinutes = String(minutes).padStart(2, '0');
+    const currentFormattedTime = `${formattedHours}:${formattedMinutes}`;
 
     let isOpen = false;
     let reopeningText = "";
 
     if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        // Lunes a Viernes: 08:30 a 12:30 (510 a 750) y 16:30 a 20:30 (990 a 1230)
         const isMorning = currentMinutes >= 510 && currentMinutes < 750;
         const isAfternoon = currentMinutes >= 990 && currentMinutes < 1230;
         if (isMorning || isAfternoon) {
@@ -255,6 +274,7 @@ function getBusinessHoursInfo() {
             }
         }
     } else if (dayOfWeek === 6) {
+        // Sábado: 09:00 a 13:00 (540 a 780)
         if (currentMinutes >= 540 && currentMinutes < 780) {
             isOpen = true;
         } else if (currentMinutes < 540) {
@@ -263,16 +283,13 @@ function getBusinessHoursInfo() {
             reopeningText = "el próximo lunes a las 08:30hs";
         }
     } else {
+        // Domingo
         reopeningText = "mañana lunes a las 08:30hs";
     }
 
-    const currentFormattedTime = argDate.toLocaleTimeString("es-AR", { hour: '2-digit', minute: '2-digit' });
-    const dayNames = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
-    const currentDayName = dayNames[dayOfWeek];
-
     return {
         isOpen,
-        currentDayName,
+        currentDayName: dayName,
         currentFormattedTime,
         reopeningText
     };
@@ -281,23 +298,43 @@ function getBusinessHoursInfo() {
 function buildSystemPrompt(leadProfile?: any, conversationId?: string, leadContextText?: string): string {
     const hoursInfo = getBusinessHoursInfo();
 
-    const scheduleBlock = `
-10. **HORARIOS COMERCIALES DE ATENCIÓN Y DÍAS HÁBILES EN TIEMPO REAL** ⏰:
+    let scheduleBlock = "";
+    if (hoursInfo.isOpen) {
+        scheduleBlock = `
+10. **HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL** ⏰:
    - **Horario Habitual del Concesionario**:
      - Lunes a Viernes: 08:30 a 12:30hs y 16:30 a 20:30hs.
      - Sábados: 09:00 a 13:00hs.
      - Domingos y Feriados: CERRADO.
-   - **ESTADO ACTUAL DEL CONCESIONARIO EN TIEMPO REAL**:
-     - Día y Hora Actual (Argentina): ${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs.
-     - Estado Comercial: ${hoursInfo.isOpen ? "🟢 ABIERTO (En horario de atención público)" : "🔴 CERRADO (Fuera de horario de atención)"}
-   - **MOMENTO EXACTO PARA MENCIONAR QUE EL CONCESIONARIO ESTÁ CERRADO (REGLA ESTRICTA)** 🔴:
-     - **NO MENCIONES QUE ESTAMOS CERRADOS MIENTRAS ESTÉS INTERACTUANDO, RESPONDIENDO PREGUNTAS O RECOLECTANDO LOS DATOS DEL CLIENTE**.
-     - **MENCIONÁ QUE EL CONCESIONARIO ESTÁ CERRADO ÚNICAMENTE EN ESTOS 2 CASOS**:
-       1. **AL FINALIZAR EL REGISTRO COMPLETO**: Al terminar de pedir todos los datos del cliente (tras ejecutar 'crear_nuevo_lead' o 'actualizar_lead_activo' con Nombre y Apellido completos), avísale que por estar cerrado en este momento, nuestro equipo le estará enviando las fotos, precios o información **${hoursInfo.reopeningText}** apenas volvamos a abrir.
-       2. **SI EL CLIENTE PREGUNTA EXPLÍCITAMENTE CUÁNDO SE LO CONTACTA O SI ATIENDEN AHORA**: Si pregunta "¿cuándo me contactan?", "¿cuándo me mandan?", "¿están abiertos?", "¿atienden ahora?" o consulta nuestros horarios.
+   - **ESTADO ACTUAL DEL CONCESIONARIO EN ESTE INSTANTE**:
+     - Día y Hora Actual (Argentina): **${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs**.
+     - Estado Comercial: **🟢 ABIERTO (En horario de atención al público)**.
+   - **REGLAS ESTRICTAS CUANDO ESTAMOS ABIERTOS** 🟢:
+     - **ESTÁ TERMINANTEMENTE PROHIBIDO DECIRLE AL CLIENTE QUE ESTAMOS CERRADOS O QUE SE LE CONTESTARÁ MÁS TARDE PORQUE ESTÁ CERRADO**.
+     - Al finalizar la recolección de datos o derivar al cliente con el asesor, indícale con amabilidad que **un asesor comercial se estará comunicando en breve / a la brevedad** con él para enviarle toda la información, fotos y asesorarlo.
+     - Si el cliente pregunta si estamos abiertos o consulta nuestros horarios, confirmale con entusiasmo que estamos abiertos en este momento y atendiendo normalmente.
 `;
+    } else {
+        scheduleBlock = `
+10. **HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL** ⏰:
+   - **Horario Habitual del Concesionario**:
+     - Lunes a Viernes: 08:30 a 12:30hs y 16:30 a 20:30hs.
+     - Sábados: 09:00 a 13:00hs.
+     - Domingos y Feriados: CERRADO.
+   - **ESTADO ACTUAL DEL CONCESIONARIO EN ESTE INSTANTE**:
+     - Día y Hora Actual (Argentina): **${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs**.
+     - Estado Comercial: **🔴 CERRADO (Fuera de horario de atención al público)**.
+     - Próxima Apertura: **${hoursInfo.reopeningText}**.
+   - **REGLAS ESTRICTAS CUANDO ESTAMOS CERRADOS** 🔴:
+     - **NO INTERRUMPAS NI DIGAS QUE ESTAMOS CERRADOS MIENTRAS ESTÉS INTERACTUANDO, RESPONDIENDO PREGUNTAS O RECOLECTANDO LOS DATOS DEL CLIENTE**.
+     - **MENCIONÁ QUE EL CONCESIONARIO ESTÁ CERRADO ÚNICAMENTE EN ESTOS 2 CASOS**:
+       1. **AL FINALIZAR EL REGISTRO COMPLETO**: Al terminar de pedir los datos del cliente (tras ejecutar 'crear_nuevo_lead' o 'actualizar_lead_activo' con Nombre y Apellido completos), avisale amablemente que por estar fuera de horario comercial en este momento, nuestro equipo de asesores le estará enviando las fotos, precios o información **${hoursInfo.reopeningText}** apenas volvamos a abrir.
+       2. **SI EL CLIENTE PREGUNTA EXPLÍCITAMENTE**: Si pregunta "¿cuándo me contactan?", "¿están abiertos?", "¿atienden ahora?" o consulta nuestros horarios, explicále amablemente que estamos fuera de horario y que reabrimos **${hoursInfo.reopeningText}**.
+`;
+    }
 
     let prompt = SYSTEM_PROMPT_TEMPLATE + "\n" + scheduleBlock;
+
 
     if (leadContextText && leadContextText.trim()) {
         prompt += `\n\n--------------------------------------------------\nESTADO ACTUAL DEL CLIENTE Y LEAD EN DATABASE:\n${leadContextText}\n--------------------------------------------------\n
