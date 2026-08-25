@@ -344,6 +344,40 @@ class BotWhatsappService {
                 }
             });
 
+            // Escuchar presence.update para Debounce Adaptativo por Presencia
+            this.sock.ev.on('presence.update', async ({ id, presences }) => {
+                if (!id || !presences) return;
+                for (const [senderJid, presenceData] of Object.entries(presences)) {
+                    const presence = (presenceData as any)?.lastKnownPresence;
+                    if (presence === 'composing') {
+                        const senderNumber = senderJid.split('@')[0].replace(/\D/g, '');
+                        const userKey = (senderNumber || senderJid).trim();
+                        const existingBatch = userMessageBatches.get(userKey) || userMessageBatches.get(senderJid) || (senderNumber ? userMessageBatches.get(senderNumber) : undefined);
+                        if (existingBatch) {
+                            if (existingBatch.timer) clearTimeout(existingBatch.timer);
+                            const extendedDelay = Math.floor(Math.random() * (8000 - 7000 + 1)) + 7000;
+                            console.log(`[WSP BOT Presence] ✍️ Usuario ${userKey} está escribiendo... Extendiendo ventana de ráfaga en ${(extendedDelay / 1000).toFixed(1)}s`);
+                            existingBatch.timer = setTimeout(async () => {
+                                const current = userMessageBatches.get(userKey) || userMessageBatches.get(senderJid) || (senderNumber ? userMessageBatches.get(senderNumber) : undefined);
+                                if (!current) return;
+                                const uniqueMsgs = Array.from(new Set(current.messages.map(m => m.trim()).filter(Boolean)));
+                                const fullText = uniqueMsgs.join('\n');
+                                const finalMsgObj = current.msgObj;
+                                const finalJid = current.senderJid;
+                                const finalNumber = current.senderNumber;
+                                userMessageBatches.delete(userKey);
+                                if (senderNumber) userMessageBatches.delete(senderNumber);
+                                userMessageBatches.delete(senderJid);
+                                await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
+                            }, extendedDelay);
+                        }
+                    }
+                }
+            });
+
+            // Iniciar purgado periódico de memoria (TTL 1 hora, cada 15 minutos)
+            this.startMemoryCleanup();
+
         } catch (error) {
             console.error('[WSP BOT] Error during WhatsApp init:', error);
             this.isInitializing = false;
@@ -351,6 +385,34 @@ class BotWhatsappService {
         }
 
     }
+
+    private memoryCleanupTimer: NodeJS.Timeout | null = null;
+
+    private startMemoryCleanup() {
+        if (this.memoryCleanupTimer) return;
+        this.memoryCleanupTimer = setInterval(() => {
+            const ONE_HOUR_MS = 60 * 60 * 1000;
+            const now = Date.now();
+            let purgedStates = 0;
+            for (const [key, state] of userStates.entries()) {
+                if (state.lastActivity && (now - state.lastActivity) > ONE_HOUR_MS) {
+                    userStates.delete(key);
+                    purgedStates++;
+                }
+            }
+            let purgedQueues = 0;
+            for (const [key, q] of userQueues.entries()) {
+                if (!q.messages || q.messages.length === 0) {
+                    userQueues.delete(key);
+                    purgedQueues++;
+                }
+            }
+            if (purgedStates > 0 || purgedQueues > 0) {
+                console.log(`[WSP BOT Memory Purge] 🧹 Limpieza de memoria: purgados ${purgedStates} estados y ${purgedQueues} colas inactivas.`);
+            }
+        }, 15 * 60 * 1000);
+    }
+
 
     private getCleanBackendUrl(): string {
         const raw = (process.env.BACKEND_URL || 'http://localhost:4000').trim();

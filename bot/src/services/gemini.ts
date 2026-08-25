@@ -531,6 +531,18 @@ const tools: Tool[] = [
                 }
             },
             {
+                name: "evaluarCredito",
+                description: "Evalúa si el cliente o su garante tiene crédito preaprobado en las entidades financieras mediante su número de DNI y género.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        dni: { type: Type.STRING, description: "Número de DNI del cliente o garante sin puntos" },
+                        genero: { type: Type.STRING, enum: ["M", "F"], description: "Género de la persona (M o F)" }
+                    },
+                    required: ["dni", "genero"]
+                }
+            },
+            {
                 name: "checkFinancing",
                 description: "Consulta el crédito disponible del cliente en las financieras mediante su DNI.",
                 parameters: {
@@ -596,6 +608,17 @@ const tools: Tool[] = [
     }
 ];
 
+export function getSlidingWindowMessages(messages: any[], max = 8) {
+    let window = (Array.isArray(messages) ? [...messages] : []).slice(-max);
+    while (window.length > 0 && window[0].role === 'model') {
+        window.shift();
+    }
+    return window.map(msg => ({
+        role: msg.role === 'model' ? 'model' : 'user',
+        parts: [{ text: (typeof msg.text === 'string' ? msg.text : msg.parts?.[0]?.text) || '' }]
+    }));
+}
+
 export class GeminiService {
     private async generateContentWithRetry(contents: any[], leadProfile?: any, conversationId?: string, leadContextText?: string, attempts = 3): Promise<any> {
         const currentModel = "gemini-3.5-flash-lite";
@@ -645,12 +668,13 @@ export class GeminiService {
         leadContextText?: string
     ) {
         try {
-            // OPTIMIZACIÓN DE TOKENS: Truncar el historial enviado a Gemini a los últimos 10 mensajes
-            const trimmedHistory = Array.isArray(history) ? history.slice(-10) : [];
+            // VENTANA DESLIZANTE (SLIDING WINDOW): Últimos 8 mensajes garantizando que inicie con rol 'user'
+            const trimmedHistory = getSlidingWindowMessages(history, 8);
             const contentsPayload = [
                 ...trimmedHistory,
                 { role: "user", parts: [{ text: message }] }
             ];
+
 
             const result = await this.generateContentWithRetry(contentsPayload, leadProfile, conversationId, leadContextText);
 
@@ -819,15 +843,15 @@ export class GeminiService {
                                 message: `No se encontró stock para "${args.code || args.repuestoName}" en ${args.locality}.`
                             };
                         }
-                    } else if (name === "checkFinancing") {
+                    } else if (name === "checkFinancing" || name === "evaluarCredito") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
                         
                         const dniClean = (args.dni || "").toString().replace(/\D/g, "");
-                        const rawGender = (args.gender || "M").toString().toUpperCase();
+                        const rawGender = (args.gender || args.genero || "M").toString().toUpperCase();
                         const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
 
-                        console.log(`[Gemini Tool checkFinancing] DNI: ${dniClean} | Género: ${genderClean}`);
+                        console.log(`[Gemini Tool ${name}] DNI: ${dniClean} | Género: ${genderClean}`);
 
                         try {
                             const res = await axios.post(`${backendUrl}/api/v1/finance/fast-preapproval`, {
@@ -836,18 +860,19 @@ export class GeminiService {
                                 cellphone: senderNumber || ""
                             }, {
                                 headers: { 'x-api-key': apiKey },
-                                timeout: 35000
+                                timeout: 8000
                             });
 
-                            console.log(`[Gemini Tool checkFinancing] ✅ HTTP Success ${res.status}:`, JSON.stringify(res.data));
+                            console.log(`[Gemini Tool ${name}] ✅ HTTP Success ${res.status}:`, JSON.stringify(res.data));
                             functionResult = res.data;
                         } catch (error: any) {
-                            console.error(`[Gemini Tool checkFinancing] ❌ HTTP ERROR: ${error.message}`);
+                            console.error(`[Gemini Tool ${name}] ❌ HTTP ERROR / Timeout: ${error.message}`);
                             functionResult = { 
                                 status: "error", 
                                 message: "La consulta a financieras demoró en responder. Podés continuar registrando datos o probar con otro DNI." 
                             };
                         }
+
                     } else if (name === "getSucursales") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
