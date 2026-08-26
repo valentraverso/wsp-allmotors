@@ -657,7 +657,10 @@ class BotWhatsappService {
                             creditData.senderNumber, 
                             creditData.dni, 
                             creditData.gender, 
-                            creditData.conversationId
+                            creditData.conversationId,
+                            creditData.isGuarantor,
+                            creditData.guarantorName,
+                            creditData.relationship
                         ).catch(err => {
                             console.error(`[WSP BOT Deferred Credit Error]: ${err.message}`);
                         });
@@ -931,8 +934,17 @@ class BotWhatsappService {
         }
     }
 
-    public async handleDeferredCreditCheck(jid: string, senderNumber: string, dni: string, gender: string, conversationId?: string) {
-        console.log(`[WSP BOT Credit Background] ⏳ Evaluando preaprobación en background para ${senderNumber} (DNI: ${dni}, Género: ${gender})...`);
+    public async handleDeferredCreditCheck(
+        jid: string, 
+        senderNumber: string, 
+        dni: string, 
+        gender: string, 
+        conversationId?: string,
+        isGuarantor?: boolean,
+        guarantorName?: string,
+        relationship?: string
+    ) {
+        console.log(`[WSP BOT Credit Background] ⏳ Evaluando preaprobación en background para ${senderNumber} (DNI: ${dni}, Género: ${gender}, Garante: ${Boolean(isGuarantor)})...`);
         const backendUrl = this.getCleanBackendUrl();
         const apiKey = getApiKey();
 
@@ -952,10 +964,20 @@ class BotWhatsappService {
             const amount = res.data?.data?.capitalmax || res.data?.capitalmax || res.data?.data?.montoMaximo || res.data?.montoMaximo || 0;
 
             let proactiveMsg = "";
-            if (isApproved) {
-                proactiveMsg = `¡FELICITACIONES! Con el DNI ${dni} sí podés obtener un crédito para sacar una moto.`;
+            if (isGuarantor) {
+                if (isApproved) {
+                    const gText = guarantorName ? ` de ${guarantorName}` : "";
+                    proactiveMsg = `¡FELICITACIONES! Con el DNI ${dni}${gText} sí podés obtener un crédito para sacar la moto.`;
+                } else {
+                    const gText = guarantorName ? ` de ${guarantorName}` : "";
+                    proactiveMsg = `No pudimos obtener crédito con el DNI ${dni}${gText} para financiar, igualmente esto es una preaprobación rápida. ¿Querés que probemos con el DNI de otra persona?`;
+                }
             } else {
-                proactiveMsg = `No pudimos obtener crédito con tu DNI para financiar, igualmente esto es una preaprobación rápida, quizás me equivoco y sí podés obtener tu moto con tu DNI. ¿Querés que probemos con algún DNI de un familiar o amigo?`;
+                if (isApproved) {
+                    proactiveMsg = `¡FELICITACIONES! Con el DNI ${dni} sí podés obtener un crédito para sacar una moto.`;
+                } else {
+                    proactiveMsg = `No pudimos obtener crédito con tu DNI para financiar, igualmente esto es una preaprobación rápida, quizás me equivoco y sí podés obtener tu moto con tu DNI. ¿Querés que probemos con algún DNI de un familiar o amigo?`;
+                }
             }
 
             const userKey = (senderNumber || jid).trim();
@@ -1009,19 +1031,39 @@ class BotWhatsappService {
                     userState.lastActivity = Date.now();
                 }
 
-                // 3. Actualizar scoring, DNI y Género en el lead comercial
+                // 3. Actualizar scoring en el lead comercial
                 try {
-                    await axios.post(`${backendUrl}/api/v1/crm/lead/actualizar-activo`, {
-                        conversationId,
-                        phone: senderNumber,
-                        dni,
-                        gender,
-                        creditoAprobado: isApproved,
-                        availableAmount: isApproved ? String(amount) : "0"
-                    }, {
-                        headers: { 'x-api-key': apiKey },
-                        timeout: 15000
-                    });
+                    if (isGuarantor) {
+                        await axios.post(`${backendUrl}/api/v1/crm/lead/gestionar-comercial`, {
+                            conversationId,
+                            phone: senderNumber,
+                            fields: {
+                                garante: {
+                                    dni,
+                                    nombre: guarantorName || undefined,
+                                    parentesco: relationship || "Familiar",
+                                    genero: gender,
+                                    estadoCredito: isApproved ? "APROBADO" : "RECHAZADO",
+                                    montoDisponible: isApproved ? String(amount) : "0"
+                                }
+                            }
+                        }, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 15000
+                        });
+                    } else {
+                        await axios.post(`${backendUrl}/api/v1/crm/lead/actualizar-activo`, {
+                            conversationId,
+                            phone: senderNumber,
+                            dni,
+                            gender,
+                            creditoAprobado: isApproved,
+                            availableAmount: isApproved ? String(amount) : "0"
+                        }, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 15000
+                        });
+                    }
                 } catch (leadErr: any) {
                     // ignore non-critical
                 }

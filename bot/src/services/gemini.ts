@@ -351,8 +351,13 @@ REGLAS DE CONVERSACIÓN:
 1. PROHIBIDO volver a pedir datos personales o comerciales que ya tengan un valor asignado (distinto de null).
 2. Si el cliente menciona su nombre, ciudad o DNI, ejecuta inmediatamente la herramienta guardar_datos_usuario.
 3. Si el cliente menciona CUALQUIER moto, marca, modelo, tipo o CILINDRADA de interés (ej: 'Algún 150', 'una 110', 'XR 150', 'scooter'), es MANDATORIO ejecutar INMEDIATAMENTE la herramienta gestionar_lead_comercial({ interest: ... }) para persistirlo en su ficha comercial (ej: si dice 'Algún 150', guardar interest: '150cc'), incluso si luego indagas por modelos concretos.
-4. Si el cliente envía un DNI sin aclarar su titularidad, pregúntale con empatía si es de él o de un familiar/amigo antes de asignarlo a su perfil principal (ej: '¿Este DNI es tuyo o de algún familiar o amigo para asesorarte con las cuotas?'). Si confirma que es suyo, persistilo de inmediato con guardar_datos_usuario({ dni, gender }). Si es de un familiar, trátalo como garante.
-5. Al recibir DNI y Género para evaluar crédito, ejecuta la herramienta evaluarCredito. Esta consulta se procesa en segundo plano: responde inmediatamente confirmando con amabilidad que ya estás consultando el sistema y pregúntale qué modelo busca mientras espera.
+4. VALIDACIÓN DE TITULARIDAD DE DNI: Si el cliente envía un DNI sin aclarar si es propio o de otra persona, pregúntale amablemente en una sola oración si ese documento es de él o de un familiar/amigo (ej: '¿Este DNI es tuyo o de algún familiar o amigo para asesorarte con las cuotas?'). Prohibido mencionar sistemas o base de datos. Si confirma que es propio, persistilo de inmediato con guardar_datos_usuario({ dni, gender }).
+5. PROTOCOLO DE GARANTE O DNI ALTERNATIVO: Si el cliente proporciona un DNI secundario (tras el rechazo del propio o para sumar ingresos con un familiar/amigo), la IA DEBE preguntar de forma natural y en un solo mensaje:
+   a) Nombre y Apellido completo del titular del DNI.
+   b) Qué relación o parentesco tiene con el cliente (ej: hermano, pareja, padre, amigo).
+   c) Género (M o F) si no se desprende con certeza.
+   ESTRICTAMENTE PROHIBIDO sobreescribir el DNI propio del cliente con el DNI del garante. El DNI del garante debe guardarse exclusivamente en la lista de garantes del lead mediante gestionar_lead_comercial({ garante: { dni, nombre, parentesco, genero } }).
+6. Al recibir DNI y Género para evaluar crédito, ejecuta la herramienta evaluarCredito. Esta consulta se procesa en segundo plano: responde inmediatamente confirmando con amabilidad que ya estás consultando el sistema y pregúntale qué modelo busca mientras espera.
 `;
 
     return `${SYSTEM_PROMPT_TEMPLATE}\n${scheduleBlock}\n${clientStateBlock}`;
@@ -383,13 +388,13 @@ const tools: Tool[] = [
             },
             {
                 name: "gestionar_lead_comercial",
-                description: "Crea o actualiza la oportunidad comercial (lead activo) cuando el cliente define o modifica la moto de interés, medio de pago, permuta de usado o notas comerciales.",
+                description: "Crea o actualiza la oportunidad comercial (lead activo) cuando el cliente define o modifica la moto de interés, medio de pago, permuta de usado, notas comerciales o garantes.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
                         interest: {
                             type: Type.STRING,
-                            description: "Marca, modelo o cilindrada de la moto de interés (ej: 'Honda Wave 110', 'XR 150')."
+                            description: "Marca, modelo o cilindrada de la moto de interés (ej: 'Honda Wave 110', 'XR 150', '150cc')."
                         },
                         paymentMethod: {
                             type: Type.STRING,
@@ -403,12 +408,23 @@ const tools: Tool[] = [
                             type: Type.STRING,
                             description: "Detalles u observaciones comerciales adicionales."
                         },
-                        fullName: { type: Type.STRING, description: "Opcional. Nombre completo del cliente si aplica." },
+                        fullName: { type: Type.STRING, description: "Opcional. Nombre completo del cliente titular." },
                         firstName: { type: Type.STRING, description: "Opcional. Nombre de pila." },
                         lastName: { type: Type.STRING, description: "Opcional. Apellido." },
                         city: { type: Type.STRING, description: "Opcional. Ciudad." },
                         state: { type: Type.STRING, description: "Opcional. Provincia." },
-                        dni: { type: Type.STRING, description: "Opcional. DNI." }
+                        dni: { type: Type.STRING, description: "Opcional. DNI del cliente titular." },
+                        gender: { type: Type.STRING, enum: ["M", "F"], description: "Opcional. Género del cliente titular." },
+                        garante: {
+                            type: Type.OBJECT,
+                            description: "Datos del garante o familiar que aporta DNI/ingresos.",
+                            properties: {
+                                dni: { type: Type.STRING, description: "DNI del garante." },
+                                nombre: { type: Type.STRING, description: "Nombre completo del garante." },
+                                parentesco: { type: Type.STRING, description: "Relación con el cliente (padre, hermano, amigo, pareja, etc.)." },
+                                genero: { type: Type.STRING, enum: ["M", "F"], description: "Género del garante (M o F)." }
+                            }
+                        }
                     },
                     required: []
                 }
@@ -516,7 +532,10 @@ const tools: Tool[] = [
                     type: Type.OBJECT,
                     properties: {
                         dni: { type: Type.STRING, description: "Número de DNI del cliente o garante sin puntos" },
-                        genero: { type: Type.STRING, enum: ["M", "F"], description: "Género de la persona (M o F)" }
+                        genero: { type: Type.STRING, enum: ["M", "F"], description: "Género de la persona (M o F)" },
+                        esGarante: { type: Type.BOOLEAN, description: "true si el DNI evaluado pertenece a un garante/familiar/amigo, false si es del cliente titular." },
+                        nombreGarante: { type: Type.STRING, description: "Nombre y apellido del garante si aplica." },
+                        parentesco: { type: Type.STRING, description: "Relación o parentesco del garante con el cliente (ej: hermano, pareja, padre, etc.)." }
                     },
                     required: ["dni", "genero"]
                 }
@@ -645,7 +664,16 @@ export class GeminiService {
         clientContext?: any,
         conversationId?: string,
         leadContextText?: string,
-        onDeferredCreditCheck?: (data: { jid: string; senderNumber: string; dni: string; gender: string; conversationId?: string }) => void
+        onDeferredCreditCheck?: (data: { 
+            jid: string; 
+            senderNumber: string; 
+            dni: string; 
+            gender: string; 
+            conversationId?: string;
+            isGuarantor?: boolean;
+            guarantorName?: string;
+            relationship?: string;
+        }) => void
     ) {
         try {
             // Si clientContext vino como objeto de lead o contexto, normalizarlo
@@ -725,7 +753,10 @@ export class GeminiService {
                                 lastName: args.lastName,
                                 city: args.city,
                                 state: args.state,
-                                dni: args.dni
+                                dni: args.dni,
+                                gender: args.gender,
+                                garante: args.garante,
+                                garantes: args.garantes
                             }
                         };
                         try {
@@ -891,10 +922,14 @@ export class GeminiService {
                         const rawGender = (args.gender || args.genero || "M").toString().toUpperCase();
                         const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
 
-                        console.log(`[Gemini Tool ${name} - Async] 🚀 Disparando consulta de crédito en background para DNI: ${dniClean} | Género: ${genderClean}`);
+                        const isGuarantor = Boolean(args.esGarante);
+                        const guarantorName = (args.nombreGarante || "").trim();
+                        const relationship = (args.parentesco || "").trim();
 
-                        // Persistir inmediatamente DNI y Género en el perfil del cliente
-                        if (dniClean) {
+                        console.log(`[Gemini Tool ${name} - Async] 🚀 Disparando consulta de crédito en background para DNI: ${dniClean} | Género: ${genderClean} | EsGarante: ${isGuarantor}`);
+
+                        // Si NO es garante (es el titular), persistir inmediatamente DNI y Género en su perfil principal
+                        if (dniClean && !isGuarantor) {
                             axios.post(`${backendUrl}/api/v1/crm/user/guardar-datos`, {
                                 conversationId: conversationId,
                                 phone: senderNumber || senderJid,
@@ -906,9 +941,30 @@ export class GeminiService {
                                 headers: { 'x-api-key': apiKey },
                                 timeout: 15000
                             }).then(res => {
-                                console.log(`[WSP BOT Credit DNI Persist] 🟢 DNI ${dniClean} y Género ${genderClean} persistidos con éxito.`);
+                                console.log(`[WSP BOT Credit DNI Persist] 🟢 DNI ${dniClean} y Género ${genderClean} persistidos en perfil titular.`);
                             }).catch(err => {
                                 console.warn(`[WSP BOT Credit DNI Persist Warning]: ${err.message}`);
+                            });
+                        } else if (dniClean && isGuarantor) {
+                            // Si es garante, registrarlo en la lista de garantes del lead sin sobreescribir el DNI principal
+                            axios.post(`${backendUrl}/api/v1/crm/lead/gestionar-comercial`, {
+                                conversationId: conversationId,
+                                phone: senderNumber || senderJid,
+                                fields: {
+                                    garante: {
+                                        dni: dniClean,
+                                        nombre: guarantorName,
+                                        parentesco: relationship,
+                                        genero: genderClean
+                                    }
+                                }
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            }).then(res => {
+                                console.log(`[WSP BOT Credit Garante Persist] 🟢 Garante DNI ${dniClean} (${guarantorName}) registrado en lista de garantes.`);
+                            }).catch(err => {
+                                console.warn(`[WSP BOT Credit Garante Persist Warning]: ${err.message}`);
                             });
                         }
 
@@ -919,7 +975,10 @@ export class GeminiService {
                                     senderNumber,
                                     dni: dniClean,
                                     gender: genderClean,
-                                    conversationId
+                                    conversationId,
+                                    isGuarantor,
+                                    guarantorName,
+                                    relationship
                                 });
                             } catch (cbErr: any) {
                                 console.error(`[Gemini Tool ${name} Callback Error]:`, cbErr.message);
