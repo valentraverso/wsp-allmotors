@@ -129,7 +129,9 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 2. **RECOLECCIÓN PASO A PASO DE DATOS (NOMBRE COMPLETO Y LUEGO CIUDAD)**:
    a) REGLA PASO A PASO PARA OBTENER DATOS (NUNCA MEZCLAR NI PEDIR TODO JUNTO EN UN SOLO MENSAJE):
       - **PASO 1 (NOMBRE COMPLETO)**: Si el cliente aún no dio su Nombre y Apellido completo, solicítale su Nombre Completo en una oración breve (ej: "¡Hola! Para asesorarte bien con las motos y cuotas, ¿cuál es tu nombre completo?").
-      - **PASO 2 (CIUDAD / LOCALIDAD)**: Una vez que ya tenés su Nombre Completo (o Apellido), si aún no se conoce su Ciudad, solicítale únicamente de qué Ciudad o Localidad es (ej: "¡Buenísimo! ¿De qué ciudad sos para ver las sucursales más cercanas y las cuotas por mes?").
+        - **MANDATO DE GUARDADO INMEDIATO**: Tan pronto el cliente envíe su Nombre y Apellido (ej: "Nestor fabian Veron"), DEBES EJECUTAR OBLIGATORIAMENTE la herramienta 'actualizar_lead_activo({ fullName: "Nestor fabian Veron" })' (o 'crear_nuevo_lead') para persistirlo en la base de datos antes de enviar tu mensaje preguntando por la ciudad.
+      - **PASO 2 (CIUDAD / LOCALIDAD)**: Una vez que ya tenés su Nombre Completo (o Apellido), si aún no se conoce su Ciudad, solicítale únicamente de qué Ciudad o Localidad es (ej: "¡Buenísimo, Nestor! ¿De qué ciudad sos para ver las sucursales más cercanas y las cuotas por mes?").
+        - **MANDATO DE GUARDADO INMEDIATO**: Tan pronto el cliente indique su Ciudad (ej: "Goya"), DEBES EJECUTAR OBLIGATORIAMENTE 'actualizar_lead_activo({ city: "Goya" })' para persistirla en la base de datos y 'getSucursales({ locality: "Goya" })'.
    b) REGLA ABSOLUTA ANTI-REPETICIÓN Y MEMORIA:
       - Si ya figura el Nombre del cliente en su perfil, **ESTÁ ESTRICTAMENTE PROHIBIDO VOLVER A PEDIR SU NOMBRE O APELLIDO**.
       - Si ya figura la Ciudad del cliente en su perfil, **ESTÁ ESTRICTAMENTE PROHIBIDO VOLVER A PEDIR SU CIUDAD O LOCALIDAD**.
@@ -140,6 +142,7 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
         2. FILTRADO POR PROVINCIA: Si la ciudad del cliente no cuenta con sucursal física directa pero pertenece a una provincia donde tenemos locales (ej. Santa Fe o Entre Ríos), muestra únicamente las sucursales pertenecientes a esa misma provincia.
         3. INCLUIR ABSOLUTAMENTE TODAS LAS SUCURSALES DEVUELTAS: Debes listar TODAS Y CADA UNA DE LAS SUCURSALES devueltas por la herramienta para esa provincia, ESTRICTAMENTE PROHIBIDO OMITIR O RECORTAR NINGUNA.
         4. FORMATO OBLIGATORIO EN LISTADO CON VIÑETAS: Debes presentarlas formateadas como un LISTADO CON VIÑETAS / RENGLONES SEPARADOS (usando • por cada sucursal) para que sea visualmente claro y ordenado.
+
 
 3. **FINANCIACIÓN, MEDIOS DE PAGO Y COMBINACIONES FLEXIBLES**:
    a) Opciones Oficiales Permitidas para 'paymentMethod' (opcion_financiacion_2 en Zoho):
@@ -341,16 +344,17 @@ function buildSystemPrompt(leadProfile?: any, conversationId?: string, leadConte
 REGLAS CRÍTICAS DE LÓGICA DE NEGOCIO SEGÚN EL ESTADO DEL LEAD:
 1. SI EL LEAD ACTIVO DICE: "No hay consultas activas en esta conversación. Debes crear un lead."
    - Significa que el cliente inicia una nueva consulta o que sus consultas anteriores ya finalizaron.
-   - Recolectá su Nombre, Apellido y Ciudad (si aún figuran como 'Sin registrar' en [CLIENTE]).
-   - Indagá la moto de su interés y su medio de pago.
-   - En cuanto tengas la moto de interés y el medio de pago, ejecutá OBLIGATORIAMENTE la herramienta:
-     -> 'crear_nuevo_lead({ interest, paymentMethod, tradeIn, ... })'
+   - Tan pronto conozcas la moto de interés (o si el cliente ya te dijo su nombre/datos), ejecutá OBLIGATORIAMENTE la herramienta:
+     -> 'crear_nuevo_lead({ interest, paymentMethod, fullName, firstName, lastName, city, state, dni, tradeIn, ... })'
 
 2. SI HAY UN [LEAD ACTIVO ACTUAL] (Estado: NUEVO o CONTACTADO):
-   - El cliente ya tiene una oportunidad comercial abierta en curso.
-   - ¡NO crees un lead nuevo!
-   - Si el cliente cambia de modelo de interés, aclara o cambia su medio de pago, o agrega una permuta/garante, ejecutá:
-     -> 'actualizar_lead_activo({ interest, paymentMethod, tradeIn, ... })'
+   - El cliente ya tiene una oportunidad comercial abierta en curso. ¡NO crees un lead nuevo!
+   - **¡MANDATO OBLIGATORIO DE ACTUALIZACIÓN DE DATOS!**:
+     - **APENAS EL CLIENTE PROPORCIONE O ACLARE SU NOMBRE COMPLETO, CIUDAD O DNI**: DEBES EJECUTAR OBLIGATORIAMENTE la herramienta:
+       -> 'actualizar_lead_activo({ fullName: "Nombre Apellido", firstName: "Nombre", lastName: "Apellido", city: "Ciudad", state: "Provincia", dni: "DNI" })'
+     - Si el cliente cambia de moto de interés, aclara o cambia su medio de pago, o agrega una permuta/garante, también ejecutá:
+       -> 'actualizar_lead_activo({ interest, paymentMethod, tradeIn, garantes, ... })'
+     - **PROHIBIDO** continuar la charla reconociendo el nombre del cliente (ej: "¡Buenísimo, Nestor!") sin haber ejecutado 'actualizar_lead_activo' para guardar formalmente su nombre y apellido en la base de datos.
 
 3. SI EL CLIENTE MANIFIESTA QUE NADIE SE COMUNICÓ CON ÉL O HACE UN RECLAMO:
    - Si el cliente dice frases como: "nadie me llamó", "sigo esperando", "no se comunicaron conmigo", "hace días que espero":
@@ -422,9 +426,13 @@ const tools: Tool[] = [
                             type: Type.STRING,
                             description: "Opcional. Detalles u observaciones comerciales adicionales."
                         },
+                        fullName: {
+                            type: Type.STRING,
+                            description: "Opcional. Nombre completo del cliente si fue aportado (ej: 'Nestor Fabian Veron')."
+                        },
                         firstName: {
                             type: Type.STRING,
-                            description: "Opcional. Nombre del cliente."
+                            description: "Opcional. Nombre de pila del cliente."
                         },
                         lastName: {
                             type: Type.STRING,
@@ -458,22 +466,31 @@ const tools: Tool[] = [
                             }
                         }
                     },
-                    required: ["interest", "paymentMethod"]
+                    required: ["interest"]
                 }
             },
             {
                 name: "actualizar_lead_activo",
-                description: "Actualiza los datos del lead activo de la conversación actual (por ejemplo si el cliente cambia de modelo de interés, aclara el medio de pago, agrega una permuta o garantes) y fija el estado en 'CONTACTADO'.",
+                description: "Actualiza los datos del lead activo de la conversación actual (por ejemplo si el cliente proporciona su Nombre Completo, Ciudad, DNI, o si cambia de modelo de interés, medio de pago, permuta o garantes) y fija el estado en 'CONTACTADO'.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
+                        fullName: {
+                            type: Type.STRING,
+                            description: "Opcional. Nombre completo del cliente proporcionado en este mensaje (ej: 'Nestor Fabian Veron')."
+                        },
+                        firstName: { type: Type.STRING, description: "Opcional. Nombre de pila del cliente." },
+                        lastName: { type: Type.STRING, description: "Opcional. Apellido del cliente." },
+                        city: { type: Type.STRING, description: "Opcional. Ciudad o localidad del cliente." },
+                        state: { type: Type.STRING, description: "Opcional. Provincia del cliente." },
+                        dni: { type: Type.STRING, description: "Opcional. DNI del cliente titular." },
                         interest: {
                             type: Type.STRING,
-                            description: "Nuevo modelo o actualización de la moto de interés."
+                            description: "Opcional. Nuevo modelo o actualización de la moto de interés."
                         },
                         paymentMethod: {
                             type: Type.STRING,
-                            description: "Medio de pago o financiación seleccionada."
+                            description: "Opcional. Medio de pago o financiación seleccionada."
                         },
                         tradeIn: {
                             type: Type.BOOLEAN,
@@ -483,11 +500,6 @@ const tools: Tool[] = [
                             type: Type.STRING,
                             description: "Opcional. Observaciones adicionales a anexar."
                         },
-                        firstName: { type: Type.STRING, description: "Opcional. Nombre del cliente." },
-                        lastName: { type: Type.STRING, description: "Opcional. Apellido del cliente." },
-                        city: { type: Type.STRING, description: "Opcional. Ciudad o localidad del cliente." },
-                        state: { type: Type.STRING, description: "Opcional. Provincia del cliente." },
-                        dni: { type: Type.STRING, description: "Opcional. DNI del cliente titular." },
                         garantes: {
                             type: Type.ARRAY,
                             description: "Opcional. Garantes actualizados.",
@@ -504,9 +516,10 @@ const tools: Tool[] = [
                             }
                         }
                     },
-                    required: ["interest", "paymentMethod"]
+                    required: []
                 }
             },
+
             {
                 name: "registrar_reclamo_contacto",
                 description: "Registra un reclamo de contacto cuando el cliente manifiesta que ya dejó sus datos previamente pero ningún asesor comercial se comunicó con él todavía. Pasa el lead activo a estado 'RECLAMA CONTACTO'.",
@@ -747,6 +760,7 @@ export class GeminiService {
                             paymentMethod: args.paymentMethod,
                             tradeIn: args.tradeIn,
                             notes: args.notes,
+                            fullName: args.fullName,
                             firstName: args.firstName,
                             lastName: args.lastName,
                             city: args.city,
@@ -775,6 +789,7 @@ export class GeminiService {
                             paymentMethod: args.paymentMethod,
                             tradeIn: args.tradeIn,
                             notes: args.notes,
+                            fullName: args.fullName,
                             firstName: args.firstName,
                             lastName: args.lastName,
                             city: args.city,
