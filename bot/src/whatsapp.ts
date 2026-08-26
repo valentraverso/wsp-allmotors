@@ -459,9 +459,10 @@ class BotWhatsappService {
             const apiKey = getApiKey();
             let leadProfile: any = null;
             let conversationId: string | undefined = undefined;
-            let leadContextText = "";
+            let clientContext: any = null;
+            let contextText = "";
 
-            // 1. Obtener perfil del Lead y sesión activa desde DB
+            // 1. Obtener perfil del Lead y contexto jerárquico desde DB
             try {
                 const queryTargets = [senderJid, senderNumber].filter(Boolean);
                 for (const target of queryTargets) {
@@ -471,13 +472,13 @@ class BotWhatsappService {
                             timeout: 15000
                         });
                         if (activeRes.data && activeRes.data.data) {
-                            if (activeRes.data.data.lead) {
-                                leadProfile = activeRes.data.data.lead;
-                            }
                             if (activeRes.data.data.conversation) {
                                 conversationId = activeRes.data.data.conversation.conversationId;
                             }
-                            if (leadProfile) break;
+                            if (activeRes.data.data.lead) {
+                                leadProfile = activeRes.data.data.lead;
+                            }
+                            if (conversationId) break;
                         }
                     } catch (targetErr: any) {
                         console.warn(`[WSP BOT LeadProfile Warning] Error consultando target ${target}: ${targetErr.message}`);
@@ -486,26 +487,36 @@ class BotWhatsappService {
 
                 if (conversationId) {
                     try {
-                        const ctxRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/active-context/${encodeURIComponent(conversationId)}?phone=${encodeURIComponent(senderNumber)}`, {
+                        const ctxRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/resolve-context/${encodeURIComponent(conversationId)}?phone=${encodeURIComponent(senderNumber)}`, {
                             headers: { 'x-api-key': apiKey },
                             timeout: 15000
                         });
-                        if (ctxRes.data && ctxRes.data.data && ctxRes.data.data.contextText) {
-                            leadContextText = ctxRes.data.data.contextText;
-                            console.log(`[WSP BOT LeadContext] 🟢 Contexto de lead activo cargado:\n${leadContextText}`);
+                        if (ctxRes.data && ctxRes.data.data) {
+                            clientContext = ctxRes.data.data.clientContext;
+                            contextText = ctxRes.data.data.contextText;
+                            console.log(`[WSP BOT Context] 🟢 Contexto resuelto (${clientContext?.source || 'TEMP_SESSION'}):\n${contextText}`);
                         }
                     } catch (ctxErr: any) {
-                        console.warn(`[WSP BOT LeadContext Warning] Error consultando contexto para ${conversationId}: ${ctxErr.message}`);
+                        console.warn(`[WSP BOT Context Warning] Error resolviendo contexto para ${conversationId}: ${ctxErr.message}`);
                     }
                 }
 
-                if (leadProfile) {
-                    console.log(`[WSP BOT LeadProfile] 🟢 Ficha de perfil inyectada para ${senderJid} (${senderNumber}):`, JSON.stringify(leadProfile));
-                } else {
-                    console.log(`[WSP BOT LeadProfile] ⚠️ Sin ficha previa devuelta desde DB para ${senderJid} (${senderNumber})`);
+                if (!clientContext) {
+                    clientContext = {
+                        source: 'TEMP_SESSION',
+                        firstName: leadProfile?.firstName || null,
+                        lastName: leadProfile?.lastName || null,
+                        city: leadProfile?.city || null,
+                        state: leadProfile?.state || null,
+                        dni: leadProfile?.dni || null,
+                        interest: leadProfile?.interest || null,
+                        paymentMethod: leadProfile?.paymentMethod || null,
+                        tradeIn: null,
+                        leadStatus: leadProfile?.status || 'SIN LEAD ACTIVO'
+                    };
                 }
             } catch (e: any) {
-                console.error(`[WSP BOT LeadProfile Error] ❌ Error general obteniendo perfil para ${senderJid}: ${e.message}`);
+                console.error(`[WSP BOT Context Error] ❌ Error general obteniendo contexto para ${senderJid}: ${e.message}`);
             }
 
             let state = userStates.get(senderJid);
@@ -629,10 +640,10 @@ class BotWhatsappService {
                 return;
             }
 
-            // 3. Generar respuesta de Gemini e inyectar perfil del cliente y lead activo
+            // 3. Generar respuesta de Gemini con contexto dinámico
             let aiResponse: any;
             try {
-                aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid, leadProfile, conversationId, leadContextText);
+                aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid, clientContext, conversationId, contextText);
 
                 userStates.set(senderJid, {
                     step: 'CHATTING',

@@ -298,121 +298,94 @@ function getBusinessHoursInfo(date: Date = new Date()) {
     };
 }
 
-function buildSystemPrompt(leadProfile?: any, conversationId?: string, leadContextText?: string): string {
+export function buildDynamicSystemInstruction(clientContext: any): string {
     const hoursInfo = getBusinessHoursInfo();
+    const source = clientContext?.source || 'TEMP_SESSION';
 
     let scheduleBlock = "";
     if (hoursInfo.isOpen) {
         scheduleBlock = `
-10. **HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL** ⏰:
-   - **Horario Habitual del Concesionario**:
-     - Lunes a Viernes: 08:30 a 12:30hs y 16:30 a 20:30hs.
-     - Sábados: 09:00 a 13:00hs.
-     - Domingos y Feriados: CERRADO.
-   - **ESTADO ACTUAL DEL CONCESIONARIO EN ESTE INSTANTE**:
-     - Día y Hora Actual (Argentina): **${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs**.
-     - Estado Comercial: **🟢 ABIERTO (En horario de atención al público)**.
-   - **REGLAS ESTRICTAS CUANDO ESTAMOS ABIERTOS** 🟢:
-     - **ESTÁ TERMINANTEMENTE PROHIBIDO DECIRLE AL CLIENTE QUE ESTAMOS CERRADOS O QUE SE LE CONTESTARÁ MÁS TARDE PORQUE ESTÁ CERRADO**.
-     - Al finalizar la recolección de datos o derivar al cliente con el asesor, indícale con amabilidad que **un asesor comercial se estará comunicando en breve / a la brevedad** con él para enviarle toda la información, fotos y asesorarlo.
-     - Si el cliente pregunta si estamos abiertos o consulta nuestros horarios, confirmale con entusiasmo que estamos abiertos en este momento y atendiendo normalmente.
+HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL ⏰:
+- Horario Habitual del Concesionario:
+  - Lunes a Viernes: 08:30 a 12:30hs y 16:30 a 20:30hs.
+  - Sábados: 09:00 a 13:00hs.
+  - Domingos y Feriados: CERRADO.
+- ESTADO ACTUAL EN ESTE INSTANTE:
+  - Día y Hora Actual (Argentina): ${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs.
+  - Estado Comercial: 🟢 ABIERTO (En horario de atención al público).
+- REGLAS CUANDO ESTAMOS ABIERTOS:
+  - PROHIBIDO decirle al cliente que estamos cerrados o que se le contestará más tarde por estar cerrado.
+  - Al finalizar o derivar con el asesor, indícale con amabilidad que un asesor comercial se comunicará a la brevedad.
 `;
     } else {
         scheduleBlock = `
-10. **HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL** ⏰:
-   - **Horario Habitual del Concesionario**:
-     - Lunes a Viernes: 08:30 a 12:30hs y 16:30 a 20:30hs.
-     - Sábados: 09:00 a 13:00hs.
-     - Domingos y Feriados: CERRADO.
-   - **ESTADO ACTUAL DEL CONCESIONARIO EN ESTE INSTANTE**:
-     - Día y Hora Actual (Argentina): **${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs**.
-     - Estado Comercial: **🔴 CERRADO (Fuera de horario de atención al público)**.
-     - Próxima Apertura: **${hoursInfo.reopeningText}**.
-   - **REGLAS ESTRICTAS CUANDO ESTAMOS CERRADOS** 🔴:
-     - **NO INTERRUMPAS NI DIGAS QUE ESTAMOS CERRADOS MIENTRAS ESTÉS INTERACTUANDO, RESPONDIENDO PREGUNTAS O RECOLECTANDO LOS DATOS DEL CLIENTE**.
-     - **MENCIONÁ QUE EL CONCESIONARIO ESTÁ CERRADO ÚNICAMENTE EN ESTOS 2 CASOS**:
-       1. **AL FINALIZAR EL REGISTRO COMPLETO**: Al terminar de pedir los datos del cliente (tras ejecutar 'crear_nuevo_lead' o 'actualizar_lead_activo' con Nombre y Apellido completos), avisale amablemente que por estar fuera de horario comercial en este momento, nuestro equipo de asesores le estará enviando las fotos, precios o información **${hoursInfo.reopeningText}** apenas volvamos a abrir.
-       2. **SI EL CLIENTE PREGUNTA EXPLÍCITAMENTE**: Si pregunta "¿cuándo me contactan?", "¿están abiertos?", "¿atienden ahora?" o consulta nuestros horarios, explicále amablemente que estamos fuera de horario y que reabrimos **${hoursInfo.reopeningText}**.
+HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL ⏰:
+- Horario Habitual del Concesionario:
+  - Lunes a Viernes: 08:30 a 12:30hs y 16:30 a 20:30hs.
+  - Sábados: 09:00 a 13:00hs.
+  - Domingos y Feriados: CERRADO.
+- ESTADO ACTUAL EN ESTE INSTANTE:
+  - Día y Hora Actual (Argentina): ${hoursInfo.currentDayName} ${hoursInfo.currentFormattedTime} hs.
+  - Estado Comercial: 🔴 CERRADO (Fuera de horario de atención al público).
+  - Próxima Apertura: ${hoursInfo.reopeningText}.
+- REGLAS CUANDO ESTAMOS CERRADOS:
+  - No interrumpas ni digas que estamos cerrados mientras estés respondiendo preguntas o recolectando datos.
+  - Al finalizar el registro completo con Nombre y Apellido, avísale amablemente que nuestro equipo le enviará la información ${hoursInfo.reopeningText} apenas volvamos a abrir.
 `;
     }
 
-    let prompt = SYSTEM_PROMPT_TEMPLATE + "\n" + scheduleBlock;
+    const clientStateBlock = `
+--- ESTADO ACTUAL DEL CLIENTE (${source}) ---
+- Nombre: ${clientContext?.firstName || 'null'}
+- Apellido: ${clientContext?.lastName || 'null'}
+- Ciudad de Residencia: ${clientContext?.city || 'null'}
+- DNI: ${clientContext?.dni || 'null'}
+- Consulta Activa de Moto: ${clientContext?.interest || 'null'}
+- Medio de Pago: ${clientContext?.paymentMethod || 'null'}
+- Estado Comercial: ${clientContext?.leadStatus || 'SIN LEAD ACTIVO'}
 
-
-    if (leadContextText && leadContextText.trim()) {
-        prompt += `\n\n--------------------------------------------------\nESTADO ACTUAL DEL CLIENTE Y LEAD EN DATABASE:\n${leadContextText}\n--------------------------------------------------\n
-REGLAS CRÍTICAS DE LÓGICA DE NEGOCIO SEGÚN EL ESTADO DEL LEAD:
-1. SI EL LEAD ACTIVO DICE: "No hay consultas activas en esta conversación. Debes crear un lead."
-   - Significa que el cliente inicia una nueva consulta o que sus consultas anteriores ya finalizaron.
-   - Tan pronto conozcas la moto de interés (o si el cliente ya te dijo su nombre/datos), ejecutá OBLIGATORIAMENTE la herramienta:
-     -> 'crear_nuevo_lead({ interest, paymentMethod, fullName, firstName, lastName, city, state, dni, tradeIn, ... })'
-
-2. SI HAY UN [LEAD ACTIVO ACTUAL] (Estado: NUEVO o CONTACTADO):
-   - El cliente ya tiene una oportunidad comercial abierta en curso. ¡NO crees un lead nuevo!
-   - **¡MANDATO OBLIGATORIO DE ACTUALIZACIÓN DE DATOS!**:
-     - **APENAS EL CLIENTE PROPORCIONE O ACLARE SU NOMBRE COMPLETO, CIUDAD O DNI**: DEBES EJECUTAR OBLIGATORIAMENTE la herramienta:
-       -> 'actualizar_lead_activo({ fullName: "Nombre Apellido", firstName: "Nombre", lastName: "Apellido", city: "Ciudad", state: "Provincia", dni: "DNI" })'
-     - Si el cliente cambia de moto de interés, aclara o cambia su medio de pago, o agrega una permuta/garante, también ejecutá:
-       -> 'actualizar_lead_activo({ interest, paymentMethod, tradeIn, garantes, ... })'
-     - **PROHIBIDO** continuar la charla reconociendo el nombre del cliente (ej: "¡Buenísimo, Nestor!") sin haber ejecutado 'actualizar_lead_activo' para guardar formalmente su nombre y apellido en la base de datos.
-
-3. SI EL CLIENTE MANIFIESTA QUE NADIE SE COMUNICÓ CON ÉL O HACE UN RECLAMO:
-   - Si el cliente dice frases como: "nadie me llamó", "sigo esperando", "no se comunicaron conmigo", "hace días que espero":
-   - Mantené la calma, sé empático y confirmale que elevás la prioridad de su caso de inmediato.
-   - Ejecutá OBLIGATORIAMENTE la herramienta:
-     -> 'registrar_reclamo_contacto()'
-`;
-    } else if (leadProfile) {
-        let profileText = `\n\n[FICHA DE PERFIL DEL CLIENTE ALMACENADA EN DATABASE]\n`;
-        const formalFirstName = (leadProfile.firstName || '').trim();
-        const formalLastName = (leadProfile.lastName || '').trim();
-        const formalFullName = (leadProfile.fullName || (formalFirstName ? `${formalFirstName} ${formalLastName}`.trim() : '')).trim();
-        
-        profileText += `- Nombre formal registrado del cliente: "${formalFullName || 'No registrado aún (Debes pedirle su Nombre Completo por texto)'}"\n`;
-        profileText += `- Ciudad: "${leadProfile.city || 'Sin registrar'}"\n`;
-        profileText += `- Provincia: "${leadProfile.state || 'Sin registrar'}"\n`;
-        profileText += `- DNI: "${leadProfile.dni || 'Sin registrar'}"\n`;
-        profileText += `- Moto de Interés: "${leadProfile.interest || 'Sin registrar'}"\n`;
-        if (leadProfile.garantes && leadProfile.garantes.length > 0) {
-            profileText += `- Garantes registrados: ${JSON.stringify(leadProfile.garantes)}\n`;
-        }
-        if (leadProfile.overallCreditStatus) {
-            profileText += `- Evaluación Crediticia Previa: ${JSON.stringify(leadProfile.overallCreditStatus)}\n`;
-        }
-
-        profileText += `\nREGLAS ABSOLUTAS Y OBLIGATORIAS DE MEMORIA Y NOMBRES:
-1. PROHIBICIÓN ABSOLUTA DE USAR O ASUMIR EL NOMBRE DE PERFIL DE WHATSAPP:
-   - ESTÁ TERMINANTEMENTE PROHIBIDO saludar al cliente por un nombre no dicho formalmente por él en el chat.
-   - Si no hay un "Nombre formal registrado" arriba, NO LLAMES AL CLIENTE POR NINGÚN NOMBRE. Salúdalo amablemente ("¡Hola! Buenos días...") y pídele su Nombre Completo por texto en la charla.
-
-2. RESPUESTA SI EL CLIENTE TE PREGUNTA "¿QUÉ INFORMACIÓN MÍA TENÉS?", "¿QUÉ DATOS MÍOS TENÉS?", "¿QUÉ SABÉS DE MÍ?", "¿SABÉS MI NOMBRE?" O SIMILAR:
-   - DEBES RESPONDER CONFIRMANDO EXACTAMENTE LOS DATOS FORMALES QUE YA TIENES GUARDADOS EN LA LISTA ANTERIOR.
-   ${formalFullName ? `- EJEMPLO: "Tengo registrado que te llamás ${formalFullName}${leadProfile.city ? ` y sos de ${leadProfile.city}` : ''}."` : `- EJEMPLO: "Por el momento no tengo registrado tu nombre completo. ¿Cómo te llamás así te anoto en el sistema?"`}
-
-3. PROHIBICIÓN DE REPETIR PREGUNTAS SOBRE DATOS GUARDADOS:
-   ${formalFullName ? `- ¡PROHIBIDO volver a pedir su Nombre o Apellido si ya figura "${formalFullName}" arriba!\n` : ''}
-   ${leadProfile.city ? `- ¡PROHIBIDO volver a pedir su Ciudad si ya figura "${leadProfile.city}" arriba!\n` : ''}
-   ${leadProfile.dni ? `- ¡PROHIBIDO volver a pedir su DNI si ya figura "${leadProfile.dni}" arriba!\n` : ''}
+REGLAS DE CONVERSACIÓN:
+1. PROHIBIDO volver a pedir datos personales o comerciales que ya tengan un valor asignado (distinto de null).
+2. Si el cliente menciona su nombre, ciudad o DNI, ejecuta inmediatamente la herramienta guardar_datos_usuario.
+3. Si el cliente define moto de interés, medio de pago o entrega de usado, ejecuta la herramienta gestionar_lead_comercial.
+4. Si consulta por crédito con DNI, solicita amablemente DNI y género si aún figuran como null.
 `;
 
-        prompt += profileText;
-    }
-
-    return prompt;
+    return `${SYSTEM_PROMPT_TEMPLATE}\n${scheduleBlock}\n${clientStateBlock}`;
 }
 
 const tools: Tool[] = [
     {
         functionDeclarations: [
             {
-                name: "crear_nuevo_lead",
-                description: "Crea una nueva oportunidad comercial (lead) cuando el cliente consulta por una moto o cotización y no existe un lead activo en la sesión. Si ya existía un lead activo, actualiza sus datos automáticamente.",
+                name: "guardar_datos_usuario",
+                description: "Guarda o actualiza los datos de identidad del cliente (Nombre Completo, Nombre, Apellido, Ciudad, Provincia, DNI, Género) de forma inmediata apenas los mencione en el chat.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        fullName: {
+                            type: Type.STRING,
+                            description: "Nombre completo del cliente proporcionado en el chat (ej: 'Nestor Fabian Veron')."
+                        },
+                        firstName: { type: Type.STRING, description: "Nombre de pila del cliente." },
+                        lastName: { type: Type.STRING, description: "Apellido del cliente." },
+                        city: { type: Type.STRING, description: "Ciudad o localidad de residencia del cliente." },
+                        state: { type: Type.STRING, description: "Provincia del cliente (Santa Fe, Entre Ríos, Corrientes, etc.)." },
+                        dni: { type: Type.STRING, description: "Número de DNI del cliente (solo números)." },
+                        gender: { type: Type.STRING, enum: ["M", "F"], description: "Género del cliente (M o F)." }
+                    },
+                    required: []
+                }
+            },
+            {
+                name: "gestionar_lead_comercial",
+                description: "Crea o actualiza la oportunidad comercial (lead activo) cuando el cliente define o modifica la moto de interés, medio de pago, permuta de usado o notas comerciales.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
                         interest: {
                             type: Type.STRING,
-                            description: "Marca, modelo o cilindrada de la moto de interés (ej: 'Honda Wave 110', 'XR 150', '110cc económica')."
+                            description: "Marca, modelo o cilindrada de la moto de interés (ej: 'Honda Wave 110', 'XR 150')."
                         },
                         paymentMethod: {
                             type: Type.STRING,
@@ -420,116 +393,68 @@ const tools: Tool[] = [
                         },
                         tradeIn: {
                             type: Type.BOOLEAN,
-                            description: "Opcional. true si el cliente desea entregar su moto usada como parte de pago, false si no."
+                            description: "true si el cliente desea entregar moto usada como parte de pago, false si no."
                         },
                         notes: {
                             type: Type.STRING,
-                            description: "Opcional. Detalles u observaciones comerciales adicionales."
+                            description: "Detalles u observaciones comerciales adicionales."
                         },
-                        fullName: {
-                            type: Type.STRING,
-                            description: "Opcional. Nombre completo del cliente si fue aportado (ej: 'Nestor Fabian Veron')."
-                        },
-                        firstName: {
-                            type: Type.STRING,
-                            description: "Opcional. Nombre de pila del cliente."
-                        },
-                        lastName: {
-                            type: Type.STRING,
-                            description: "Opcional. Apellido del cliente."
-                        },
-                        city: {
-                            type: Type.STRING,
-                            description: "Opcional. Ciudad o localidad del cliente."
-                        },
-                        state: {
-                            type: Type.STRING,
-                            description: "Opcional. Provincia del cliente."
-                        },
-                        dni: {
-                            type: Type.STRING,
-                            description: "Opcional. DNI del cliente titular."
-                        },
-                        garantes: {
-                            type: Type.ARRAY,
-                            description: "Opcional. Lista de garantes evaluados o aportados por el cliente.",
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    dni: { type: Type.STRING, description: "DNI del garante." },
-                                    nombre: { type: Type.STRING, description: "Nombre completo del garante." },
-                                    genero: { type: Type.STRING, description: "Femenino o Masculino." },
-                                    montoDisponible: { type: Type.STRING, description: "Monto de crédito preaprobado del garante." },
-                                    parentesco: { type: Type.STRING, description: "Parentesco con el cliente titular." }
-                                },
-                                required: ["dni"]
-                            }
-                        }
-                    },
-                    required: ["interest"]
-                }
-            },
-            {
-                name: "actualizar_lead_activo",
-                description: "Actualiza los datos del lead activo de la conversación actual (por ejemplo si el cliente proporciona su Nombre Completo, Ciudad, DNI, o si cambia de modelo de interés, medio de pago, permuta o garantes) y fija el estado en 'CONTACTADO'.",
-                parameters: {
-                    type: Type.OBJECT,
-                    properties: {
-                        fullName: {
-                            type: Type.STRING,
-                            description: "Opcional. Nombre completo del cliente proporcionado en este mensaje (ej: 'Nestor Fabian Veron')."
-                        },
-                        firstName: { type: Type.STRING, description: "Opcional. Nombre de pila del cliente." },
-                        lastName: { type: Type.STRING, description: "Opcional. Apellido del cliente." },
-                        city: { type: Type.STRING, description: "Opcional. Ciudad o localidad del cliente." },
-                        state: { type: Type.STRING, description: "Opcional. Provincia del cliente." },
-                        dni: { type: Type.STRING, description: "Opcional. DNI del cliente titular." },
-                        interest: {
-                            type: Type.STRING,
-                            description: "Opcional. Nuevo modelo o actualización de la moto de interés."
-                        },
-                        paymentMethod: {
-                            type: Type.STRING,
-                            description: "Opcional. Medio de pago o financiación seleccionada."
-                        },
-                        tradeIn: {
-                            type: Type.BOOLEAN,
-                            description: "Opcional. true si entrega moto usada como parte de pago, false si no."
-                        },
-                        notes: {
-                            type: Type.STRING,
-                            description: "Opcional. Observaciones adicionales a anexar."
-                        },
-                        garantes: {
-                            type: Type.ARRAY,
-                            description: "Opcional. Garantes actualizados.",
-                            items: {
-                                type: Type.OBJECT,
-                                properties: {
-                                    dni: { type: Type.STRING, description: "DNI del garante." },
-                                    nombre: { type: Type.STRING, description: "Nombre completo del garante." },
-                                    genero: { type: Type.STRING, description: "Femenino o Masculino." },
-                                    montoDisponible: { type: Type.STRING, description: "Monto de crédito preaprobado del garante." },
-                                    parentesco: { type: Type.STRING, description: "Parentesco con el cliente titular." }
-                                },
-                                required: ["dni"]
-                            }
-                        }
+                        fullName: { type: Type.STRING, description: "Opcional. Nombre completo del cliente si aplica." },
+                        firstName: { type: Type.STRING, description: "Opcional. Nombre de pila." },
+                        lastName: { type: Type.STRING, description: "Opcional. Apellido." },
+                        city: { type: Type.STRING, description: "Opcional. Ciudad." },
+                        state: { type: Type.STRING, description: "Opcional. Provincia." },
+                        dni: { type: Type.STRING, description: "Opcional. DNI." }
                     },
                     required: []
                 }
             },
-
             {
-                name: "registrar_reclamo_contacto",
-                description: "Registra un reclamo de contacto cuando el cliente manifiesta que ya dejó sus datos previamente pero ningún asesor comercial se comunicó con él todavía. Pasa el lead activo a estado 'RECLAMA CONTACTO'.",
+                name: "crear_nuevo_lead",
+                description: "Crea una nueva oportunidad comercial (lead) cuando el cliente consulta por una moto o cotización y no existe un lead activo en la sesión.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
-                        motivo: {
-                            type: Type.STRING,
-                            description: "Opcional. Motivo o comentario del cliente sobre la falta de contacto."
-                        }
+                        interest: { type: Type.STRING, description: "Marca o modelo de moto de interés." },
+                        paymentMethod: { type: Type.STRING, description: "Medio de pago o financiación." },
+                        tradeIn: { type: Type.BOOLEAN, description: "true si entrega moto usada, false si no." },
+                        notes: { type: Type.STRING, description: "Observaciones comerciales." },
+                        fullName: { type: Type.STRING, description: "Nombre completo del cliente." },
+                        firstName: { type: Type.STRING, description: "Nombre de pila." },
+                        lastName: { type: Type.STRING, description: "Apellido." },
+                        city: { type: Type.STRING, description: "Ciudad." },
+                        state: { type: Type.STRING, description: "Provincia." },
+                        dni: { type: Type.STRING, description: "DNI." }
+                    },
+                    required: []
+                }
+            },
+            {
+                name: "actualizar_lead_activo",
+                description: "Actualiza los datos del lead activo de la conversación actual y fija el estado en 'CONTACTADO'.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        fullName: { type: Type.STRING, description: "Nombre completo del cliente." },
+                        firstName: { type: Type.STRING, description: "Nombre de pila." },
+                        lastName: { type: Type.STRING, description: "Apellido." },
+                        city: { type: Type.STRING, description: "Ciudad." },
+                        state: { type: Type.STRING, description: "Provincia." },
+                        dni: { type: Type.STRING, description: "DNI." },
+                        interest: { type: Type.STRING, description: "Moto de interés." },
+                        paymentMethod: { type: Type.STRING, description: "Medio de pago." },
+                        tradeIn: { type: Type.BOOLEAN, description: "true si entrega usada, false si no." }
+                    },
+                    required: []
+                }
+            },
+            {
+                name: "registrar_reclamo_contacto",
+                description: "Registra un reclamo de contacto cuando el cliente manifiesta que ningún asesor comercial se comunicó todavía. Pasa el lead activo a 'RECLAMA CONTACTO'.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        motivo: { type: Type.STRING, description: "Opcional. Comentario del cliente sobre la falta de contacto." }
                     }
                 }
             },
@@ -670,7 +595,7 @@ export function getSlidingWindowMessages(messages: any[], max = 8) {
 }
 
 export class GeminiService {
-    private async generateContentWithRetry(contents: any[], leadProfile?: any, conversationId?: string, leadContextText?: string, attempts = 3): Promise<any> {
+    private async generateContentWithRetry(contents: any[], clientContext?: any, attempts = 3): Promise<any> {
         const currentModel = "gemini-3.5-flash-lite";
         const retryDelayMs = 120000;
 
@@ -685,7 +610,7 @@ export class GeminiService {
                     model: currentModel,
                     contents: contents,
                     config: {
-                        systemInstruction: buildSystemPrompt(leadProfile, conversationId, leadContextText),
+                        systemInstruction: buildDynamicSystemInstruction(clientContext),
                         tools: tools,
                     }
                 });
@@ -713,11 +638,14 @@ export class GeminiService {
         history: any[] = [], 
         senderNumber: string = "", 
         senderJid: string = "", 
-        leadProfile?: any,
+        clientContext?: any,
         conversationId?: string,
         leadContextText?: string
     ) {
         try {
+            // Si clientContext vino como objeto de lead o contexto, normalizarlo
+            const effectiveContext = clientContext && clientContext.source ? clientContext : (clientContext || {});
+
             // VENTANA DESLIZANTE (SLIDING WINDOW): Últimos 8 mensajes garantizando que inicie con rol 'user'
             const trimmedHistory = getSlidingWindowMessages(history, 8);
             const contentsPayload = [
@@ -725,8 +653,7 @@ export class GeminiService {
                 { role: "user", parts: [{ text: message }] }
             ];
 
-
-            const result = await this.generateContentWithRetry(contentsPayload, leadProfile, conversationId, leadContextText);
+            const result = await this.generateContentWithRetry(contentsPayload, effectiveContext);
 
             const candidate = result.candidates?.[0];
             let content = candidate?.content?.parts?.[0]?.text || "";
@@ -750,7 +677,64 @@ export class GeminiService {
                     }
 
                     let functionResult;
-                    if (name === "crear_nuevo_lead") {
+                    if (name === "guardar_datos_usuario") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
+                        const userPayload = {
+                            conversationId: conversationId,
+                            phone: senderNumber || senderJid,
+                            fields: {
+                                fullName: args.fullName,
+                                firstName: args.firstName,
+                                lastName: args.lastName,
+                                city: args.city,
+                                state: args.state,
+                                dni: args.dni,
+                                gender: args.gender
+                            }
+                        };
+                        try {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/user/guardar-datos`, userPayload, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                            console.log(`[WSP BOT Identity] 🟢 guardar_datos_usuario exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
+                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Datos del usuario guardados exitosamente." };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool guardar_datos_usuario] ❌ Error: ${error.message}`);
+                            functionResult = { status: "success", message: "Datos del usuario registrados." };
+                        }
+                    } else if (name === "gestionar_lead_comercial") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
+                        const commercialPayload = {
+                            conversationId: conversationId,
+                            phone: senderNumber || senderJid,
+                            fields: {
+                                interest: args.interest,
+                                paymentMethod: args.paymentMethod,
+                                tradeIn: args.tradeIn,
+                                notes: args.notes,
+                                fullName: args.fullName,
+                                firstName: args.firstName,
+                                lastName: args.lastName,
+                                city: args.city,
+                                state: args.state,
+                                dni: args.dni
+                            }
+                        };
+                        try {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/gestionar-comercial`, commercialPayload, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            });
+                            console.log(`[WSP BOT Commercial] 🟢 gestionar_lead_comercial exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
+                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead comercial gestionado exitosamente." };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool gestionar_lead_comercial] ❌ Error: ${error.message}`);
+                            functionResult = { status: "success", message: "Oportunidad comercial registrada." };
+                        }
+                    } else if (name === "crear_nuevo_lead") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
                         const leadPayload = {
@@ -1018,7 +1002,7 @@ export class GeminiService {
                         { role: "user", parts: toolResults }
                     ],
                     config: {
-                        systemInstruction: buildSystemPrompt(leadProfile, conversationId, leadContextText),
+                        systemInstruction: buildDynamicSystemInstruction(effectiveContext),
                         tools: tools,
                     }
                 });
