@@ -643,7 +643,26 @@ class BotWhatsappService {
             // 3. Generar respuesta de Gemini con contexto dinámico
             let aiResponse: any;
             try {
-                aiResponse = await geminiService.chat(combinedText, history, senderNumber, senderJid, clientContext, conversationId, contextText);
+                aiResponse = await geminiService.chat(
+                    combinedText, 
+                    history, 
+                    senderNumber, 
+                    senderJid, 
+                    clientContext, 
+                    conversationId, 
+                    contextText,
+                    (creditData) => {
+                        this.handleDeferredCreditCheck(
+                            creditData.jid, 
+                            creditData.senderNumber, 
+                            creditData.dni, 
+                            creditData.gender, 
+                            creditData.conversationId
+                        ).catch(err => {
+                            console.error(`[WSP BOT Deferred Credit Error]: ${err.message}`);
+                        });
+                    }
+                );
 
                 userStates.set(senderJid, {
                     step: 'CHATTING',
@@ -909,6 +928,127 @@ class BotWhatsappService {
             }
         } catch (err: any) {
             console.warn(`[WSP BOT Recovery Warning] ${err.message}`);
+        }
+    }
+
+    public async handleDeferredCreditCheck(jid: string, senderNumber: string, dni: string, gender: string, conversationId?: string) {
+        console.log(`[WSP BOT Credit Background] ⏳ Evaluando preaprobación en background para ${senderNumber} (DNI: ${dni}, Género: ${gender})...`);
+        const backendUrl = this.getCleanBackendUrl();
+        const apiKey = getApiKey();
+
+        try {
+            const res = await axios.post(`${backendUrl}/api/v1/finance/fast-preapproval`, {
+                dni,
+                gender,
+                cellphone: senderNumber || ""
+            }, {
+                headers: { 'x-api-key': apiKey },
+                timeout: 25000
+            });
+
+            console.log(`[WSP BOT Credit Background] 🟢 Respuesta recibida para DNI ${dni}:`, JSON.stringify(res.data));
+
+            const isApproved = res.data?.data?.approved === true || res.data?.approved === true;
+            const amount = res.data?.data?.capitalmax || res.data?.capitalmax || res.data?.data?.montoMaximo || res.data?.montoMaximo || 0;
+
+            let proactiveMsg = "";
+            if (isApproved) {
+                let formattedAmount = "";
+                if (typeof amount === 'number' && amount > 0) {
+                    formattedAmount = amount.toLocaleString('es-AR');
+                } else if (typeof amount === 'string' && amount.trim() && !isNaN(Number(amount.replace(/\D/g, '')))) {
+                    formattedAmount = Number(amount.replace(/\D/g, '')).toLocaleString('es-AR');
+                }
+
+                if (formattedAmount) {
+                    proactiveMsg = `¡FELICITACIONES! Con el DNI ${dni} sí podés obtener un crédito para sacar una moto.\nContás con un monto preaprobado de hasta $${formattedAmount}.`;
+                } else {
+                    proactiveMsg = `¡FELICITACIONES! Con el DNI ${dni} sí podés obtener un crédito para sacar una moto.`;
+                }
+            } else {
+                proactiveMsg = `No pudimos obtener crédito con tu DNI para financiar, igualmente esto es una preaprobación rápida, quizás me equivoco y sí podés obtener tu moto con tu DNI. ¿Querés que probemos con algún DNI de un familiar o amigo?`;
+            }
+
+            const userKey = (senderNumber || jid).trim();
+
+            const sendAndSync = async () => {
+                // Activar presencia humana de escritura (2 a 3 segundos)
+                if (this.sock) {
+                    try {
+                        await this.sock.sendPresenceUpdate('composing', jid);
+                    } catch (e) {}
+                }
+                await new Promise(resolve => setTimeout(resolve, 2500));
+
+                await this.sendMessage(jid, proactiveMsg);
+
+                if (this.sock) {
+                    try {
+                        await this.sock.sendPresenceUpdate('paused', jid);
+                    } catch (e) {}
+                }
+
+                // 1. Sincronizar en MongoDB
+                try {
+                    await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                        jid: jid,
+                        phone: senderNumber,
+                        conversationId,
+                        replyStatus: 'PENDIENTE',
+                        lastMessage: proactiveMsg,
+                        messages: [{
+                            role: 'model',
+                            text: proactiveMsg,
+                            timestamp: new Date()
+                        }],
+                        updatedAt: new Date()
+                    }, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 15000
+                    });
+                } catch (syncErr: any) {
+                    console.error(`[WSP BOT Credit Sync Error]: ${syncErr.message}`);
+                }
+
+                // 2. Sincronizar en memoria local (userStates)
+                const userState = userStates.get(jid) || userStates.get(userKey);
+                if (userState && Array.isArray(userState.history)) {
+                    userState.history.push({
+                        role: 'model',
+                        parts: [{ text: proactiveMsg }]
+                    });
+                    userState.lastActivity = Date.now();
+                }
+
+                // 3. Actualizar scoring en el lead comercial si corresponde
+                try {
+                    await axios.post(`${backendUrl}/api/v1/crm/lead/actualizar-activo`, {
+                        conversationId,
+                        phone: senderNumber,
+                        creditoAprobado: isApproved,
+                        availableAmount: isApproved ? String(amount) : "0"
+                    }, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 15000
+                    });
+                } catch (leadErr: any) {
+                    // ignore non-critical
+                }
+            };
+
+            // Esperar breve retardo para que la primera respuesta de Gemini termine de enviarse
+            await new Promise(resolve => setTimeout(resolve, 3000));
+
+            // Si el usuario está procesando actualmente la primera respuesta, esperar
+            if (this.processingUsers.has(userKey) || this.processingUsers.has(jid)) {
+                console.log(`[WSP BOT Credit Background] ⏳ Usuario ${userKey} ocupado procesando mensaje. Esperando 12s para enviar resultado proactivo...`);
+                setTimeout(sendAndSync, 12000);
+            } else {
+                await sendAndSync();
+            }
+
+        } catch (error: any) {
+            console.error(`[WSP BOT Credit Background] ❌ Error o Timeout consultando crédito para DNI ${dni}: ${error.message}`);
         }
     }
 

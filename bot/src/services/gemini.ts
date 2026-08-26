@@ -507,7 +507,7 @@ const tools: Tool[] = [
             },
             {
                 name: "evaluarCredito",
-                description: "Evalúa si el cliente o su garante tiene crédito preaprobado en las entidades financieras mediante su número de DNI y género.",
+                description: "Inicia la consulta rápida de preaprobación crediticia con DNI y género en segundo plano. Retorna de inmediato.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -519,7 +519,7 @@ const tools: Tool[] = [
             },
             {
                 name: "checkFinancing",
-                description: "Consulta el crédito disponible del cliente en las financieras mediante su DNI.",
+                description: "Inicia la consulta de crédito del cliente en las financieras mediante su DNI y género en segundo plano. Retorna de inmediato.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -640,7 +640,8 @@ export class GeminiService {
         senderJid: string = "", 
         clientContext?: any,
         conversationId?: string,
-        leadContextText?: string
+        leadContextText?: string,
+        onDeferredCreditCheck?: (data: { jid: string; senderNumber: string; dni: string; gender: string; conversationId?: string }) => void
     ) {
         try {
             // Si clientContext vino como objeto de lead o contexto, normalizarlo
@@ -880,35 +881,32 @@ export class GeminiService {
                             };
                         }
                     } else if (name === "checkFinancing" || name === "evaluarCredito") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        
                         const dniClean = (args.dni || "").toString().replace(/\D/g, "");
                         const rawGender = (args.gender || args.genero || "M").toString().toUpperCase();
                         const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
 
-                        console.log(`[Gemini Tool ${name}] DNI: ${dniClean} | Género: ${genderClean}`);
+                        console.log(`[Gemini Tool ${name} - Async] 🚀 Disparando consulta de crédito en background para DNI: ${dniClean} | Género: ${genderClean}`);
 
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/finance/fast-preapproval`, {
-                                dni: dniClean,
-                                gender: genderClean,
-                                cellphone: senderNumber || ""
-                            }, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 8000
-                            });
-
-                            console.log(`[Gemini Tool ${name}] ✅ HTTP Success ${res.status}:`, JSON.stringify(res.data));
-                            functionResult = res.data;
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool ${name}] ❌ HTTP ERROR / Timeout: ${error.message}`);
-                            functionResult = { 
-                                status: "error", 
-                                message: "La consulta a financieras demoró en responder. Podés continuar registrando datos o probar con otro DNI." 
-                            };
+                        if (onDeferredCreditCheck && dniClean) {
+                            try {
+                                onDeferredCreditCheck({
+                                    jid: senderJid || `${senderNumber}@s.whatsapp.net`,
+                                    senderNumber,
+                                    dni: dniClean,
+                                    gender: genderClean,
+                                    conversationId
+                                });
+                            } catch (cbErr: any) {
+                                console.error(`[Gemini Tool ${name} Callback Error]:`, cbErr.message);
+                            }
                         }
 
+                        functionResult = {
+                            status: "in_progress",
+                            dni: dniClean,
+                            gender: genderClean,
+                            message: "La consulta de crédito se inició en segundo plano. Confírmale al cliente que ya estás consultando el sistema y pregúntale qué modelo busca mientras espera."
+                        };
                     } else if (name === "getSucursales") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
