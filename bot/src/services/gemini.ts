@@ -164,8 +164,11 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
       - Pregunta de cierre (si YA se conoce el vehículo): Si el vehículo de interés ya fue definido previamente en la charla, confirmale la derivación al asesor y preguntale: "¿Te puedo ayudar en algo más?".
    d) RESEÑA BREVE AL MENCIONAR UN MODELO CONCRETO DE MOTO:
       - Si el cliente menciona un modelo específico de moto (ej. Honda Navi, Wave 110, XR 150, Skua 150, Blitz 110): Responde en 1 sola oración corta y atractiva destacando su cualidad principal (ej: "La Honda Navi 110cc es automática, súper compacta, ágil y económica para moverte por la ciudad") antes de solicitar datos o derivar al asesor.
-   e) Cuándo solicitar el DNI para Preaprobación Crediticia:
-      - SI EL CLIENTE ELIGE DNI, Recibo de sueldo, Entrega + DNI o Entrega + Recibo: AHÍ SÍ solicitá DNI y Género (M/F) para consultar 'checkFinancing'.
+   e) Validación de Titularidad del DNI y Cuándo solicitarlo:
+      - Si el cliente envía un número de DNI pero NO aclara expresamente si le pertenece a él o a otra persona, la IA debe preguntarle de manera natural y empática en una sola oración si ese documento es de él o de un familiar/amigo (ej: "¿Este DNI es tuyo o de algún familiar o amigo para asesorarte con las cuotas?"). Está estrictamente prohibido decirle que es para guardarlo en el sistema o en la base de datos.
+      - Si el cliente confirma que es suyo: persistir de inmediato 'dni' y 'gender' en su perfil mediante 'guardar_datos_usuario({ dni, gender })' y proceder con 'evaluarCredito({ dni, genero })'.
+      - Si el cliente indica que es de un familiar: gestionarlo como garante y no sobreescribir el DNI principal del cliente.
+      - SI EL CLIENTE ELIGE DNI, Recibo de sueldo, Entrega + DNI o Entrega + Recibo: AHÍ SÍ solicitá DNI y Género (M/F) para consultar 'evaluarCredito'.
       - SI EL CLIENTE ELIGE Efectivo, Tarjeta de credito o Entrega + Tarjeta: NO LE PIDAS DNI.
    f) Si figura APROBADO / PREAPROBADO (PROHIBICIÓN ABSOLUTA DE MENCIONAR EL MONTO O CIFRA EN PESOS):
       - Celebralo en 1 o 2 oraciones cortas con entusiasmo (ej: "¡Genial! Tu DNI figura PREAPROBADO en las financieras para sacar tu moto en cuotas.").
@@ -347,8 +350,9 @@ HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL ⏰:
 REGLAS DE CONVERSACIÓN:
 1. PROHIBIDO volver a pedir datos personales o comerciales que ya tengan un valor asignado (distinto de null).
 2. Si el cliente menciona su nombre, ciudad o DNI, ejecuta inmediatamente la herramienta guardar_datos_usuario.
-3. Si el cliente define moto de interés, medio de pago o entrega de usado, ejecuta la herramienta gestionar_lead_comercial.
-4. Si consulta por crédito con DNI, solicita amablemente DNI y género si aún figuran como null.
+3. Si el cliente menciona CUALQUIER moto, marca, modelo, tipo o CILINDRADA de interés (ej: 'Algún 150', 'una 110', 'XR 150', 'scooter'), es MANDATORIO ejecutar INMEDIATAMENTE la herramienta gestionar_lead_comercial({ interest: ... }) para persistirlo en su ficha comercial (ej: si dice 'Algún 150', guardar interest: '150cc'), incluso si luego indagas por modelos concretos.
+4. Si el cliente envía un DNI sin aclarar su titularidad, pregúntale con empatía si es de él o de un familiar/amigo antes de asignarlo a su perfil principal (ej: '¿Este DNI es tuyo o de algún familiar o amigo para asesorarte con las cuotas?'). Si confirma que es suyo, persistilo de inmediato con guardar_datos_usuario({ dni, gender }). Si es de un familiar, trátalo como garante.
+5. Al recibir DNI y Género para evaluar crédito, ejecuta la herramienta evaluarCredito. Esta consulta se procesa en segundo plano: responde inmediatamente confirmando con amabilidad que ya estás consultando el sistema y pregúntale qué modelo busca mientras espera.
 `;
 
     return `${SYSTEM_PROMPT_TEMPLATE}\n${scheduleBlock}\n${clientStateBlock}`;
@@ -881,11 +885,32 @@ export class GeminiService {
                             };
                         }
                     } else if (name === "checkFinancing" || name === "evaluarCredito") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
                         const dniClean = (args.dni || "").toString().replace(/\D/g, "");
                         const rawGender = (args.gender || args.genero || "M").toString().toUpperCase();
                         const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
 
                         console.log(`[Gemini Tool ${name} - Async] 🚀 Disparando consulta de crédito en background para DNI: ${dniClean} | Género: ${genderClean}`);
+
+                        // Persistir inmediatamente DNI y Género en el perfil del cliente
+                        if (dniClean) {
+                            axios.post(`${backendUrl}/api/v1/crm/user/guardar-datos`, {
+                                conversationId: conversationId,
+                                phone: senderNumber || senderJid,
+                                fields: {
+                                    dni: dniClean,
+                                    gender: genderClean
+                                }
+                            }, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 15000
+                            }).then(res => {
+                                console.log(`[WSP BOT Credit DNI Persist] 🟢 DNI ${dniClean} y Género ${genderClean} persistidos con éxito.`);
+                            }).catch(err => {
+                                console.warn(`[WSP BOT Credit DNI Persist Warning]: ${err.message}`);
+                            });
+                        }
 
                         if (onDeferredCreditCheck && dniClean) {
                             try {

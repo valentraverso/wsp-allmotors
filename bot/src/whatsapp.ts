@@ -953,18 +953,7 @@ class BotWhatsappService {
 
             let proactiveMsg = "";
             if (isApproved) {
-                let formattedAmount = "";
-                if (typeof amount === 'number' && amount > 0) {
-                    formattedAmount = amount.toLocaleString('es-AR');
-                } else if (typeof amount === 'string' && amount.trim() && !isNaN(Number(amount.replace(/\D/g, '')))) {
-                    formattedAmount = Number(amount.replace(/\D/g, '')).toLocaleString('es-AR');
-                }
-
-                if (formattedAmount) {
-                    proactiveMsg = `¡FELICITACIONES! Con el DNI ${dni} sí podés obtener un crédito para sacar una moto.\nContás con un monto preaprobado de hasta $${formattedAmount}.`;
-                } else {
-                    proactiveMsg = `¡FELICITACIONES! Con el DNI ${dni} sí podés obtener un crédito para sacar una moto.`;
-                }
+                proactiveMsg = `¡FELICITACIONES! Con el DNI ${dni} sí podés obtener un crédito para sacar una moto.`;
             } else {
                 proactiveMsg = `No pudimos obtener crédito con tu DNI para financiar, igualmente esto es una preaprobación rápida, quizás me equivoco y sí podés obtener tu moto con tu DNI. ¿Querés que probemos con algún DNI de un familiar o amigo?`;
             }
@@ -1020,11 +1009,13 @@ class BotWhatsappService {
                     userState.lastActivity = Date.now();
                 }
 
-                // 3. Actualizar scoring en el lead comercial si corresponde
+                // 3. Actualizar scoring, DNI y Género en el lead comercial
                 try {
                     await axios.post(`${backendUrl}/api/v1/crm/lead/actualizar-activo`, {
                         conversationId,
                         phone: senderNumber,
+                        dni,
+                        gender,
                         creditoAprobado: isApproved,
                         availableAmount: isApproved ? String(amount) : "0"
                     }, {
@@ -1036,16 +1027,20 @@ class BotWhatsappService {
                 }
             };
 
-            // Esperar breve retardo para que la primera respuesta de Gemini termine de enviarse
-            await new Promise(resolve => setTimeout(resolve, 3000));
-
-            // Si el usuario está procesando actualmente la primera respuesta, esperar
-            if (this.processingUsers.has(userKey) || this.processingUsers.has(jid)) {
-                console.log(`[WSP BOT Credit Background] ⏳ Usuario ${userKey} ocupado procesando mensaje. Esperando 12s para enviar resultado proactivo...`);
-                setTimeout(sendAndSync, 12000);
-            } else {
-                await sendAndSync();
+            // Espera reactiva: asegurar que la respuesta inicial de Gemini (y su delay humano) haya terminado de enviarse
+            const maxWaitMs = 45000;
+            const startTime = Date.now();
+            while (
+                (this.processingUsers.has(userKey) || this.processingUsers.has(jid)) &&
+                Date.now() - startTime < maxWaitMs
+            ) {
+                console.log(`[WSP BOT Credit Background] ⏳ Esperando que finalice el turno en curso para ${userKey}...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
             }
+
+            // Breve pausa adicional antes de activar 'composing' y enviar la notificación proactiva
+            await new Promise(resolve => setTimeout(resolve, 2500));
+            await sendAndSync();
 
         } catch (error: any) {
             console.error(`[WSP BOT Credit Background] ❌ Error o Timeout consultando crédito para DNI ${dni}: ${error.message}`);
