@@ -190,8 +190,12 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 4. **PROHIBICIÓN ABSOLUTA DE PEDIR TELÉFONO O NÚMERO DE WHATSAPP**:
    - ESTÁ TERMINANTEMENTE PROHIBIDO PEDIRLE EL TELÉFONO O CELULAR AL CLIENTE EN CUALQUIER MOMENTO. El teléfono se captura 100% automáticamente.
 
-5. **VEHÍCULOS Y USADOS COMO PARTE DE PAGO**:
-   a) Motos Usadas: Tomamos motos usadas como parte de pago para la compra de 0km o usados. Invitá al cliente a acercarse con la moto a la sucursal para la peritación y tasación comercial.
+5. **VEHÍCULOS Y USADOS COMO PARTE DE PAGO (PLAN CANJE / PERMUTA)**:
+   a) **Motos Usadas (Protocolo de 4 Datos Obligatorios)**:
+      - Tomamos motos usadas como parte de pago para la compra de 0km o usados.
+      - **Captura Inmediata**: Si el cliente manifiesta tener una moto usada para entregar, consulta por Plan Canje o permuta, DEBES preguntarle en **1 sola oración amable y directa** los 4 datos clave: **Marca, Modelo, Año y Kilómetros aproximados** (ej: "¡Genial! Tomamos motos usadas en parte de pago, ¿qué marca, modelo, año y cuántos kilómetros tiene tu moto aproximadamente?").
+      - **Persistencia Inmediata**: Al recibir los datos de la moto usada, ejecuta de inmediato la tool 'gestionar_lead_comercial({ tradeIn: true, usedVehicle: { brand, model, year, kilometers } })'.
+      - **Invitación a Sucursal**: Recordale que la cotización final y peritación se efectúa acercándose con la moto a la sucursal más cercana.
    b) Autos Usados o Terrenos: NO tomamos autos usados ni terrenos, pero ESTÁ ESTRICTAMENTE PROHIBIDO DECIRLE AL CLIENTE QUE NO TOMAMOS AUTOS O TERRENOS. Responde en 1 oración diciendo amablemente que lo podemos analizar en persona y lo invitás a acercarse al local a charlarlo.
 
 6. **DETECCIÓN DE SOSPECHA DE ESTAFA O FRAUDE (SEGURIDAD Y CONFIANZA)**:
@@ -337,6 +341,14 @@ HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL ⏰:
 `;
     }
 
+    let usedVehicleStateText = "null";
+    if (clientContext?.usedVehicle && (clientContext.usedVehicle.brand || clientContext.usedVehicle.model)) {
+        const uv = clientContext.usedVehicle;
+        usedVehicleStateText = `${uv.brand || ''} ${uv.model || ''} ${uv.year || ''} (${uv.kilometers || ''} km)`.trim();
+    } else if (clientContext?.tradeIn) {
+        usedVehicleStateText = "Sí (datos pendientes)";
+    }
+
     const clientStateBlock = `
 --- ESTADO ACTUAL DEL CLIENTE (${source}) ---
 - Nombre: ${clientContext?.firstName || 'null'}
@@ -345,6 +357,7 @@ HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL ⏰:
 - DNI: ${clientContext?.dni || 'null'}
 - Consulta Activa de Moto: ${clientContext?.interest || 'null'}
 - Medio de Pago: ${clientContext?.paymentMethod || 'null'}
+- Moto Usada en Parte de Pago: ${usedVehicleStateText}
 - Estado Comercial: ${clientContext?.leadStatus || 'SIN LEAD ACTIVO'}
 
 REGLAS DE CONVERSACIÓN:
@@ -404,6 +417,16 @@ const tools: Tool[] = [
                             type: Type.BOOLEAN,
                             description: "true si el cliente desea entregar moto usada como parte de pago, false si no."
                         },
+                        usedVehicle: {
+                            type: Type.OBJECT,
+                            description: "Datos estructurados de la moto usada que el cliente ofrece en parte de pago.",
+                            properties: {
+                                brand: { type: Type.STRING, description: "Marca de la moto usada (ej: Honda, Motomel, Gilera, Corven)." },
+                                model: { type: Type.STRING, description: "Modelo de la moto usada (ej: Wave 110, Blitz 110, Smash 110, Titan 150)." },
+                                year: { type: Type.STRING, description: "Año de fabricación de la moto usada (ej: 2021, 2023)." },
+                                kilometers: { type: Type.STRING, description: "Kilometraje aproximado de la moto usada (ej: 12000, 15000 km)." }
+                            }
+                        },
                         notes: {
                             type: Type.STRING,
                             description: "Detalles u observaciones comerciales adicionales."
@@ -438,6 +461,16 @@ const tools: Tool[] = [
                         interest: { type: Type.STRING, description: "Marca o modelo de moto de interés." },
                         paymentMethod: { type: Type.STRING, description: "Medio de pago o financiación." },
                         tradeIn: { type: Type.BOOLEAN, description: "true si entrega moto usada, false si no." },
+                        usedVehicle: {
+                            type: Type.OBJECT,
+                            description: "Datos estructurados de la moto usada (marca, modelo, año, km).",
+                            properties: {
+                                brand: { type: Type.STRING, description: "Marca de la moto usada." },
+                                model: { type: Type.STRING, description: "Modelo de la moto usada." },
+                                year: { type: Type.STRING, description: "Año de la moto usada." },
+                                kilometers: { type: Type.STRING, description: "Kilometraje aproximado." }
+                            }
+                        },
                         notes: { type: Type.STRING, description: "Observaciones comerciales." },
                         fullName: { type: Type.STRING, description: "Nombre completo del cliente." },
                         firstName: { type: Type.STRING, description: "Nombre de pila." },
@@ -463,7 +496,17 @@ const tools: Tool[] = [
                         dni: { type: Type.STRING, description: "DNI." },
                         interest: { type: Type.STRING, description: "Moto de interés." },
                         paymentMethod: { type: Type.STRING, description: "Medio de pago." },
-                        tradeIn: { type: Type.BOOLEAN, description: "true si entrega usada, false si no." }
+                        tradeIn: { type: Type.BOOLEAN, description: "true si entrega usada, false si no." },
+                        usedVehicle: {
+                            type: Type.OBJECT,
+                            description: "Datos estructurados de la moto usada (marca, modelo, año, km).",
+                            properties: {
+                                brand: { type: Type.STRING, description: "Marca de la moto usada." },
+                                model: { type: Type.STRING, description: "Modelo de la moto usada." },
+                                year: { type: Type.STRING, description: "Año de la moto usada." },
+                                kilometers: { type: Type.STRING, description: "Kilometraje aproximado." }
+                            }
+                        }
                     },
                     required: []
                 }
@@ -747,6 +790,7 @@ export class GeminiService {
                                 interest: args.interest,
                                 paymentMethod: args.paymentMethod,
                                 tradeIn: args.tradeIn,
+                                usedVehicle: args.usedVehicle,
                                 notes: args.notes,
                                 fullName: args.fullName,
                                 firstName: args.firstName,
@@ -779,6 +823,7 @@ export class GeminiService {
                             interest: args.interest,
                             paymentMethod: args.paymentMethod,
                             tradeIn: args.tradeIn,
+                            usedVehicle: args.usedVehicle,
                             notes: args.notes,
                             fullName: args.fullName,
                             firstName: args.firstName,
@@ -808,6 +853,7 @@ export class GeminiService {
                             interest: args.interest,
                             paymentMethod: args.paymentMethod,
                             tradeIn: args.tradeIn,
+                            usedVehicle: args.usedVehicle,
                             notes: args.notes,
                             fullName: args.fullName,
                             firstName: args.firstName,
