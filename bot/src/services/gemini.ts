@@ -484,7 +484,7 @@ const tools: Tool[] = [
             },
             {
                 name: "actualizar_lead_activo",
-                description: "Actualiza los datos del lead activo de la conversación actual y fija el estado en 'CONTACTADO'.",
+                description: "Actualiza los datos del lead activo de la conversación actual preservando su estado comercial.",
                 parameters: {
                     type: Type.OBJECT,
                     properties: {
@@ -869,7 +869,7 @@ export class GeminiService {
                                 timeout: 15000
                             });
                             console.log(`[WSP BOT Lead] 🟢 actualizar_lead_activo exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
-                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead activo actualizado a CONTACTADO." };
+                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead activo actualizado exitosamente." };
                         } catch (error: any) {
                             console.error(`[Gemini Tool actualizar_lead_activo] ❌ Error: ${error.message}`);
                             functionResult = { status: "success", message: "Lead activo actualizado." };
