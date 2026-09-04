@@ -181,6 +181,67 @@ class InternalWhatsappService {
         }
     }
 
+    async sendDocument(target: string, documentBuffer: Buffer, fileName: string, mimetype: string = 'application/pdf', retryCount = 0): Promise<void> {
+        if (!this.sock) {
+            console.error('[WSP INTERNAL] Socket not initialized. Cannot send document.');
+            throw new Error('WhatsApp socket not initialized');
+        }
+        
+        let jid = target.trim();
+
+        // 1. Manejo de Grupos de WhatsApp (@g.us)
+        if (jid.includes('@g.us') || (jid.length > 15 && !jid.includes('@') && jid.startsWith('120'))) {
+            if (!jid.endsWith('@g.us')) {
+                jid = jid + '@g.us';
+            }
+        } 
+        // 2. Manejo de Números Individuales
+        else if (!jid.includes('@')) {
+            let cleanNumber = jid.replace(/\D/g, '');
+            
+            if (cleanNumber.length === 10) {
+                cleanNumber = '549' + cleanNumber;
+            } else if (cleanNumber.startsWith('54') && !cleanNumber.startsWith('549') && cleanNumber.length === 12) {
+                cleanNumber = '549' + cleanNumber.substring(2);
+            } else if (cleanNumber.startsWith('0') && cleanNumber.length === 11) {
+                cleanNumber = '549' + cleanNumber.substring(1);
+            }
+
+            try {
+                const results = await this.sock.onWhatsApp(cleanNumber);
+                if (results && results.length > 0 && results[0]?.exists && results[0]?.jid) {
+                    jid = results[0].jid;
+                } else {
+                    const altNumber = cleanNumber.startsWith('549') ? '54' + cleanNumber.substring(3) : cleanNumber;
+                    const altResults = await this.sock.onWhatsApp(altNumber);
+                    if (altResults && altResults.length > 0 && altResults[0]?.exists && altResults[0]?.jid) {
+                        jid = altResults[0].jid;
+                    } else {
+                        jid = cleanNumber + '@s.whatsapp.net';
+                    }
+                }
+            } catch (err: any) {
+                jid = cleanNumber + '@s.whatsapp.net';
+            }
+        }
+
+        try {
+            console.log(`[WSP INTERNAL] Sending document (${fileName}) to ${jid}...`);
+            await this.sock.sendMessage(jid, {
+                document: documentBuffer,
+                fileName: fileName,
+                mimetype: mimetype || 'application/pdf'
+            });
+            console.log(`[WSP INTERNAL] Document (${fileName}) successfully sent to ${jid}`);
+        } catch (error: any) {
+            if (retryCount < 2) {
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                return this.sendDocument(target, documentBuffer, fileName, mimetype, retryCount + 1);
+            }
+            throw error;
+        }
+    }
+
     getQR() {
         return this.qr;
     }

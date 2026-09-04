@@ -63,7 +63,8 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const PORT = process.env.PORT || 4001;
 
@@ -78,6 +79,23 @@ app.post('/send-message', authMiddleware, async (req, res) => {
     try {
         await whatsappService.sendMessage(number, message);
         res.status(200).json({ status: 'success', message: 'Internal system notification sent' });
+    } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint para enviar documentos (PDFs, comprobantes, etc.)
+app.post('/send-document', authMiddleware, async (req, res) => {
+    const { number, document, fileName, mimetype } = req.body;
+
+    if (!number || !document || !fileName) {
+        return res.status(400).json({ error: 'Number, document (base64) and fileName are required' });
+    }
+
+    try {
+        const buffer = Buffer.from(document, 'base64');
+        await whatsappService.sendDocument(number, buffer, fileName, mimetype);
+        res.status(200).json({ status: 'success', message: 'Internal system document notification sent' });
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
