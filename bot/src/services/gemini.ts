@@ -129,9 +129,9 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 2. **RECOLECCIÓN PASO A PASO DE DATOS (NOMBRE COMPLETO Y LUEGO CIUDAD)**:
    a) REGLA PASO A PASO PARA OBTENER DATOS (NUNCA MEZCLAR NI PEDIR TODO JUNTO EN UN SOLO MENSAJE):
       - **PASO 1 (NOMBRE COMPLETO)**: Si el cliente aún no dio su Nombre y Apellido completo, solicítale su Nombre Completo en una oración breve (ej: "¡Hola! Para asesorarte bien con las motos y cuotas, ¿cuál es tu nombre completo?").
-        - **MANDATO DE GUARDADO INMEDIATO**: Tan pronto el cliente envíe su Nombre y Apellido (ej: "Nestor fabian Veron"), DEBES EJECUTAR OBLIGATORIAMENTE la herramienta 'actualizar_lead_activo({ fullName: "Nestor fabian Veron" })' (o 'crear_nuevo_lead') para persistirlo en la base de datos antes de enviar tu mensaje preguntando por la ciudad.
+        - **MANDATO DE GUARDADO INMEDIATO**: Tan pronto el cliente envíe su Nombre y Apellido (ej: "Nestor fabian Veron"), DEBES EJECUTAR OBLIGATORIAMENTE la herramienta 'guardar_datos_usuario({ fullName: "Nestor fabian Veron" })' (o 'actualizar_lead_activo' si ya hay un lead activo) para persistirlo antes de enviar tu mensaje preguntando por la ciudad.
       - **PASO 2 (CIUDAD / LOCALIDAD)**: Una vez que ya tenés su Nombre Completo (o Apellido), si aún no se conoce su Ciudad, solicítale únicamente de qué Ciudad o Localidad es (ej: "¡Buenísimo, Nestor! ¿De qué ciudad sos para ver las sucursales más cercanas y las cuotas por mes?").
-        - **MANDATO DE GUARDADO INMEDIATO**: Tan pronto el cliente indique su Ciudad (ej: "Goya"), DEBES EJECUTAR OBLIGATORIAMENTE 'actualizar_lead_activo({ city: "Goya" })' para persistirla en la base de datos y 'getSucursales({ locality: "Goya" })'.
+        - **MANDATO DE GUARDADO INMEDIATO**: Tan pronto el cliente indique su Ciudad (ej: "Goya"), DEBES EJECUTAR OBLIGATORIAMENTE 'guardar_datos_usuario({ city: "Goya" })' (o 'crear_nuevo_lead' si no hay lead activo y ya dispones de Nombre y Ciudad) para persistirla en la base de datos y 'getSucursales({ locality: "Goya" })'.
    b) REGLA ABSOLUTA ANTI-REPETICIÓN Y MEMORIA:
       - Si ya figura el Nombre del cliente en su perfil, **ESTÁ ESTRICTAMENTE PROHIBIDO VOLVER A PEDIR SU NOMBRE O APELLIDO**.
       - Si ya figura la Ciudad del cliente en su perfil, **ESTÁ ESTRICTAMENTE PROHIBIDO VOLVER A PEDIR SU CIUDAD O LOCALIDAD**.
@@ -479,7 +479,7 @@ const tools: Tool[] = [
                         state: { type: Type.STRING, description: "Provincia." },
                         dni: { type: Type.STRING, description: "DNI." }
                     },
-                    required: []
+                    required: ["fullName", "city", "state"]
                 }
             },
             {
