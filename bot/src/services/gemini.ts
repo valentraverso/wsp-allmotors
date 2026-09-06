@@ -118,13 +118,27 @@ PROVINCIAS Y SUCURSALES DE ATENCIÓN:
 
 REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 
-1. **REPUESTOS Y ACCESORIOS**:
-   - Si el cliente consulta por cualquier repuesto o pieza (ej: "bulbo de embrague de xr 150 tienen?"):
-     a) PROHIBIDO dar discursos largos de derivación o explicaciones corporativas.
-     b) Si no sabés la localidad del cliente, responde DE INMEDIATO preguntando únicamente su localidad/ciudad para verificar el stock local (ej: "¿De qué localidad sos así me fijo en el stock?").
-     c) Una vez obtenida la localidad, usá la herramienta 'checkRepuestoStock' enviando la localidad y el nombre/descripción o código del repuesto.
-     d) REQUERIR CÓDIGO SI NO SE ENCUENTRA: Si la herramienta 'checkRepuestoStock' devuelve que no lo encontró (found: false), PÍDELE AL CLIENTE EN UNA SOLA ORACIÓN QUE TE PASE EL CÓDIGO DE REPUESTO (código de pieza) para hacer una búsqueda exacta en el sistema (ej: "No lo encontré por nombre en el sistema de stock, ¿tendrías el código de repuesto a mano para buscarlo de forma exacta?").
-     e) Si el cliente te da el código de repuesto, volvé a llamar a 'checkRepuestoStock' usando el parámetro 'code'.
+1. **REPUESTOS, SERVICIO TÉCNICO, REPARACIONES Y GARANTÍAS (POSTVENTA Y TALLER)**:
+   a) **REPUESTOS Y ACCESORIOS**:
+      - Si el cliente consulta por cualquier repuesto o pieza (ej: "bulbo de embrague de xr 150 tienen?"):
+        - PROHIBIDO dar discursos largos de derivación o explicaciones corporativas.
+        - Si no sabés la localidad del cliente, responde DE INMEDIATO preguntando únicamente su localidad/ciudad para verificar el stock local (ej: "¿De qué localidad sos así me fijo en el stock?").
+        - MANDATO OBLIGATORIO DE REGISTRO EN CRM: Apenas el cliente consulte por un repuesto o accesorio y conozcas su localidad, además de chequear stock con 'checkRepuestoStock', DEBES EJECUTAR OBLIGATORIAMENTE 'gestionar_lead_taller' con serviceType 'REPUESTOS', indicando descripción y ciudad, para que el equipo de repuestos cargue la cotización en el CRM, tanto si hay stock como si no lo hay.
+        - REQUERIR CÓDIGO SI NO SE ENCUENTRA: Si la herramienta 'checkRepuestoStock' devuelve que no lo encontró (found: false), PÍDELE AL CLIENTE EN UNA SOLA ORACIÓN QUE TE PASE EL CÓDIGO DE REPUESTO (código de pieza) para hacer una búsqueda exacta en el sistema (ej: "No lo encontré por nombre en el sistema de stock, ¿tendrías el código de repuesto a mano para buscarlo de forma exacta?").
+        - Si el cliente te da el código de repuesto, volvé a llamar a 'checkRepuestoStock' usando el parámetro 'code'.
+   b) **SERVICIO TÉCNICO Y TURNOS**:
+      - Si el cliente solicita turno de mantenimiento o service oficial (ej: "primer service de 1000 km", "mantenimiento oficial"):
+        - Si no sabés su localidad o el modelo de su moto, solicítalos en una sola oración breve (ej: "¿Para qué modelo de moto y en qué localidad necesitas el service?").
+        - Ejecuta de inmediato 'gestionar_lead_taller' con serviceType 'SERVICIO_TECNICO', detallando la moto y la localidad.
+   c) **REPARACIONES Y FALLAS**:
+      - Si el cliente consulta por un arreglo mecánico, rotura o diagnóstico (ej: "no me arranca la moto", "hace un ruido en el motor", "tienen taller para arreglar?"):
+        - Solicita en 1 sola oración breve su localidad y modelo de moto si no los tienes.
+        - Ejecuta obligatoriamente 'gestionar_lead_taller' con serviceType 'REPARACION' para derivar al equipo técnico.
+   d) **GARANTÍAS OFICIALES**:
+      - Si el cliente consulta por garantía oficial de su vehículo o reclamos de fábrica (ej: "la moto está en garantía y falló", "reclamo de garantía"):
+        - Solicita en 1 sola oración su localidad y qué problema presenta la moto.
+        - Ejecuta obligatoriamente 'gestionar_lead_taller' con serviceType 'GARANTIA' para que postventa gestione el caso.
+
 
 2. **RECOLECCIÓN PASO A PASO DE DATOS (NOMBRE COMPLETO Y LUEGO CIUDAD)**:
    a) REGLA PASO A PASO PARA OBTENER DATOS (NUNCA MEZCLAR NI PEDIR TODO JUNTO EN UN SOLO MENSAJE):
@@ -596,6 +610,26 @@ const tools: Tool[] = [
                 }
             },
             {
+                name: "gestionar_lead_taller",
+                description: "Registra o actualiza una oportunidad de repuestos o taller/postventa en el CRM (/crm/taller). Usar SIEMPRE que el cliente pregunte por repuestos, piezas, accesorios o solicite turno/service una vez conocida su localidad.",
+                parameters: {
+                    type: Type.OBJECT,
+                    properties: {
+                        serviceType: {
+                            type: Type.STRING,
+                            description: "Tipo de gestión de postventa: 'REPUESTOS', 'SERVICIO_TECNICO', 'REPARACION' o 'GARANTIA'",
+                            enum: ["REPUESTOS", "SERVICIO_TECNICO", "REPARACION", "GARANTIA"]
+                        },
+                        serviceDescription: { type: Type.STRING, description: "Nombre del repuesto o detalle del trabajo (ej: 'kit de transmision', 'cambio de aceite')" },
+                        city: { type: Type.STRING, description: "Ciudad o localidad del cliente" },
+                        motoModel: { type: Type.STRING, description: "Modelo o cilindrada de la moto si se conoce" },
+                        code: { type: Type.STRING, description: "Código de la pieza si fue provisto" },
+                        notes: { type: Type.STRING, description: "Observaciones adicionales si aplica" }
+                    },
+                    required: ["serviceType", "serviceDescription", "city"]
+                }
+            },
+            {
                 name: "requestServiceAppointment",
                 description: "Registra una solicitud de turno para el taller o service oficial. El teléfono se captura de forma 100% automática.",
                 parameters: {
@@ -930,9 +964,72 @@ export class GeminiService {
                             }
                             functionResult = { status: "success", message: "Lead registrado exitosamente." };
                         }
+                    } else if (name === "gestionar_lead_taller") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
+                        const clientName = (effectiveContext?.fullName || [effectiveContext?.firstName, effectiveContext?.lastName].filter(Boolean).join(' ') || '').trim();
+
+                        const descParts = [
+                            args.serviceDescription,
+                            args.motoModel ? `(Moto: ${args.motoModel})` : null,
+                            args.code ? `[Cód: ${args.code}]` : null
+                        ].filter(Boolean).join(' ');
+
+                        const workshopPayload = {
+                            conversationId,
+                            phone: senderNumber || senderJid,
+                            fullName: clientName || undefined,
+                            city: args.city,
+                            businessLine: 'TALLER',
+                            serviceType: args.serviceType || 'REPUESTOS',
+                            serviceDescription: descParts || args.serviceDescription || '',
+                            vehicleModel: args.motoModel || '',
+                            notes: args.notes || '',
+                            status: 'NUEVO',
+                            source: 'IA'
+                        };
+
+                        try {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 8000
+                            });
+                            console.log(`[WSP BOT Workshop] 🟢 gestionar_lead_taller exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
+                            functionResult = { status: "success", message: "Oportunidad de repuestos/taller registrada exitosamente en CRM." };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool gestionar_lead_taller] ❌ Error: ${error.message}`);
+                            functionResult = { status: "success", message: "Consulta de taller registrada." };
+                        }
                     } else if (name === "requestServiceAppointment") {
+                        const backendUrl = getCleanBackendUrl();
+                        const apiKey = getApiKey();
                         console.log("[Gemini] Service appointment request:", args);
-                        functionResult = { status: "success", message: "Turno de taller registrado internamente de manera exitosa (Mock)" };
+
+                        const workshopPayload = {
+                            conversationId,
+                            phone: senderNumber || senderJid,
+                            fullName: args.name,
+                            city: args.city,
+                            businessLine: 'TALLER',
+                            serviceType: 'SERVICIO_TECNICO',
+                            serviceDescription: `${args.serviceType || 'Servicio Técnico / Mantenimiento'} (Moto: ${args.motoModel || 'No especificada'}) [Turno solicitado: ${args.preferredDate || 'A coordinar'}]`,
+                            vehicleModel: args.motoModel || '',
+                            scheduledDate: args.preferredDate || '',
+                            status: 'NUEVO',
+                            source: 'IA'
+                        };
+
+                        try {
+                            const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
+                                headers: { 'x-api-key': apiKey },
+                                timeout: 8000
+                            });
+                            console.log(`[WSP BOT Workshop] 🟢 requestServiceAppointment exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
+                            functionResult = { status: "success", message: "Turno de taller registrado en CRM de manera exitosa." };
+                        } catch (error: any) {
+                            console.error(`[Gemini Tool requestServiceAppointment] ❌ Error: ${error.message}`);
+                            functionResult = { status: "success", message: "Turno de taller registrado para ser confirmado por el asesor." };
+                        }
                     } else if (name === "checkRepuestoStock") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
