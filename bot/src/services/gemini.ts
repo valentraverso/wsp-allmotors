@@ -127,17 +127,11 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
         - REQUERIR CÓDIGO SI NO SE ENCUENTRA: Si la herramienta 'checkRepuestoStock' devuelve que no lo encontró (found: false), PÍDELE AL CLIENTE EN UNA SOLA ORACIÓN QUE TE PASE EL CÓDIGO DE REPUESTO (código de pieza) para hacer una búsqueda exacta en el sistema (ej: "No lo encontré por nombre en el sistema de stock, ¿tendrías el código de repuesto a mano para buscarlo de forma exacta?").
         - Si el cliente te da el código de repuesto, volvé a llamar a 'checkRepuestoStock' usando el parámetro 'code'.
    b) **SERVICIO TÉCNICO Y TURNOS**:
-      - Si el cliente solicita turno de mantenimiento o service oficial (ej: "primer service de 1000 km", "mantenimiento oficial"):
-        - Si no sabés su localidad o el modelo de su moto, solicítalos en una sola oración breve (ej: "¿Para qué modelo de moto y en qué localidad necesitas el service?").
-        - Ejecuta de inmediato 'gestionar_lead_taller' con serviceType 'SERVICIO_TECNICO', detallando la moto y la localidad.
+      - Si el cliente solicita service oficial o mantenimiento programado: DEBES PEDIRLE SÍ O SÍ en una sola oración breve su localidad, modelo de moto, AÑO y KILOMETRAJE ACTUAL (km) (ej: 'Para coordinar tu turno en el taller oficial, ¿de qué localidad sos, qué moto tenés, de qué año es y cuántos kilómetros tiene aproximadamente?'). Una vez obtenidos, ejecuta 'gestionar_lead_taller' enviando serviceType 'SERVICIO_TECNICO', city, motoModel, year y km.
    c) **REPARACIONES Y FALLAS**:
-      - Si el cliente consulta por un arreglo mecánico, rotura o diagnóstico (ej: "no me arranca la moto", "hace un ruido en el motor", "tienen taller para arreglar?"):
-        - Solicita en 1 sola oración breve su localidad y modelo de moto si no los tienes.
-        - Ejecuta obligatoriamente 'gestionar_lead_taller' con serviceType 'REPARACION' para derivar al equipo técnico.
+      - Si el cliente consulta por una reparación mecánica o falla: DEBES PEDIRLE SÍ O SÍ su localidad, modelo de moto, AÑO y KILOMETRAJE (km) antes de derivar. Ejecuta 'gestionar_lead_taller' enviando serviceType 'REPARACION', city, motoModel, year y km.
    d) **GARANTÍAS OFICIALES**:
-      - Si el cliente consulta por garantía oficial de su vehículo o reclamos de fábrica (ej: "la moto está en garantía y falló", "reclamo de garantía"):
-        - Solicita en 1 sola oración su localidad y qué problema presenta la moto.
-        - Ejecuta obligatoriamente 'gestionar_lead_taller' con serviceType 'GARANTIA' para que postventa gestione el caso.
+      - Si el cliente consulta por reclamo de garantía oficial: DEBES PEDIRLE SÍ O SÍ su localidad, qué problema presenta, AÑO y KILOMETRAJE (km) para verificar la cobertura. Ejecuta 'gestionar_lead_taller' enviando serviceType 'GARANTIA', city, motoModel, year y km.
 
 
 2. **RECOLECCIÓN PASO A PASO DE DATOS (NOMBRE COMPLETO Y LUEGO CIUDAD)**:
@@ -623,6 +617,8 @@ const tools: Tool[] = [
                         serviceDescription: { type: Type.STRING, description: "Nombre del repuesto o detalle del trabajo (ej: 'kit de transmision', 'cambio de aceite')" },
                         city: { type: Type.STRING, description: "Ciudad o localidad del cliente" },
                         motoModel: { type: Type.STRING, description: "Modelo o cilindrada de la moto si se conoce" },
+                        km: { type: Type.STRING, description: "Kilometraje actual de la moto (ej: '1500 km', '12000')" },
+                        year: { type: Type.STRING, description: "Año de fabricación de la moto (ej: '2022', '2024')" },
                         code: { type: Type.STRING, description: "Código de la pieza si fue provisto" },
                         notes: { type: Type.STRING, description: "Observaciones adicionales si aplica" }
                     },
@@ -984,6 +980,8 @@ export class GeminiService {
                             serviceType: args.serviceType || 'REPUESTOS',
                             serviceDescription: descParts || args.serviceDescription || '',
                             vehicleModel: args.motoModel || '',
+                            vehicleKm: args.km || args.vehicleKm || '',
+                            vehicleYear: args.year || args.vehicleYear || '',
                             notes: args.notes || '',
                             status: 'NUEVO',
                             source: 'IA'
