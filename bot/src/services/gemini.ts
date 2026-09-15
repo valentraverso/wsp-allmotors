@@ -84,6 +84,81 @@ function getGeminiClient(): GoogleGenAI {
     return new GoogleGenAI({ apiKey });
 }
 
+export function inferStateFromCity(city?: string, currentState?: string): string {
+    if (currentState && currentState.trim()) return currentState.trim();
+    if (!city || !city.trim()) return "";
+
+    const norm = (str: string) => str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    const c = norm(city);
+
+    // Entre Ríos
+    if (c.includes("concordia") || c.includes("parana") || c.includes("gualeguaychu") || 
+        c.includes("gualeguay") || c.includes("chajari") || c.includes("federacion") || 
+        c.includes("villaguay") || c.includes("concepcion del uruguay") || c.includes("victoria") || 
+        c.includes("santa elena") || c.includes("la paz") || c.includes("diamante") || 
+        c.includes("colon") || c.includes("san jose") || c.includes("crespo") || c.includes("nogoya") || 
+        c.includes("federal") || c.includes("basavilbaso")) {
+        return "Entre Ríos";
+    }
+
+    // Santa Fe
+    if (c.includes("santa fe") || c.includes("rosario") || c.includes("venado tuerto") || 
+        c.includes("rafaela") || c.includes("reconquista") || c.includes("santo tome") || 
+        c.includes("esperanza") || c.includes("san lorenzo") || c.includes("villa constitucion") || 
+        c.includes("galvez") || c.includes("casilda") || c.includes("canonada de gomez") || 
+        c.includes("san javier") || c.includes("coronda") || c.includes("san cristobal")) {
+        return "Santa Fe";
+    }
+
+    // Corrientes
+    if (c.includes("corrientes") || c.includes("goya") || c.includes("paso de los libres") || 
+        c.includes("curuzu cuatia") || c.includes("mercedes") || c.includes("bellavista") || 
+        c.includes("bella vista") || c.includes("ituzaingo") || c.includes("esquina") || 
+        c.includes("monte caseros") || c.includes("santo tome corrientes")) {
+        return "Corrientes";
+    }
+
+    // Chaco
+    if (c.includes("resistencia") || c.includes("saenz pena") || c.includes("charata") || 
+        c.includes("castelli") || c.includes("villa angela") || c.includes("fontana") || 
+        c.includes("barranqueras")) {
+        return "Chaco";
+    }
+
+    // Córdoba
+    if (c.includes("cordoba") || c.includes("rio cuarto") || c.includes("villa maria") || 
+        c.includes("carlos paz") || c.includes("san francisco") || c.includes("alta gracia") || 
+        c.includes("bell ville") || c.includes("rio tercero")) {
+        return "Córdoba";
+    }
+
+    // Misiones
+    if (c.includes("posadas") || c.includes("obera") || c.includes("eldorado") || 
+        c.includes("iguazu") || c.includes("apostoles") || c.includes("leandro n alem")) {
+        return "Misiones";
+    }
+
+    // Formosa
+    if (c.includes("formosa") || c.includes("clorinda") || c.includes("pirane")) {
+        return "Formosa";
+    }
+
+    // Buenos Aires / CABA
+    if (c.includes("buenos aires") || c.includes("caba") || c.includes("la plata") || 
+        c.includes("mar del plata") || c.includes("bahia blanca") || c.includes("tandil") || 
+        c.includes("san nicolas") || c.includes("pergamino") || c.includes("junin")) {
+        return "Buenos Aires";
+    }
+
+    // Chubut
+    if (c.includes("sarmiento") || c.includes("comodoro rivadavia") || c.includes("trelew") || 
+        c.includes("madryn") || c.includes("esquel") || c.includes("rawson")) {
+        return "Chubut";
+    }
+
+    return "";
+}
+
 const SYSTEM_PROMPT_TEMPLATE = `
 NOMBRE E IDENTIDAD DEL ASISTENTE:
 - Te llamás **"Manuel Botardo"** (también usás las variantes **"Manu Botardo"** y **"Manuel Botardo"** al saludarte o referirte a vos mismo).
@@ -122,24 +197,26 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
    a) **REPUESTOS Y ACCESORIOS**:
       - Si el cliente consulta por cualquier repuesto o pieza (ej: "bulbo de embrague de xr 150 tienen?"):
         - PROHIBIDO dar discursos largos de derivación o explicaciones corporativas.
-        - Si no sabés la localidad del cliente, responde DE INMEDIATO preguntando únicamente su localidad/ciudad para verificar el stock local (ej: "¿De qué localidad sos así me fijo en el stock?").
-        - MANDATO OBLIGATORIO DE REGISTRO EN CRM: Apenas el cliente consulte por un repuesto o accesorio y conozcas su localidad, además de chequear stock con 'checkRepuestoStock', DEBES EJECUTAR OBLIGATORIAMENTE 'gestionar_lead_taller' con serviceType 'REPUESTOS', indicando descripción y ciudad, para que el equipo de repuestos cargue la cotización en el CRM, tanto si hay stock como si no lo hay.
+        - Si aún no conocés el Nombre y/o Localidad del cliente: responde DE INMEDIATO solicitando su Nombre Completo y de qué Ciudad/Localidad es para verificar el stock local (ej: "¡Hola! Para chequearte el stock en nuestras sucursales, ¿cuál es tu nombre completo y de qué ciudad sos?").
+        - MANDATO OBLIGATORIO DE REGISTRO EN CRM: Apenas conozcas el Nombre y la Ciudad del cliente, además de chequear stock con 'checkRepuestoStock', DEBES EJECUTAR OBLIGATORIAMENTE 'gestionar_lead_taller' con serviceType 'REPUESTOS', indicando descripción y ciudad, para que el equipo de repuestos cargue la cotización en el CRM, tanto si hay stock como si no lo hay.
         - REQUERIR CÓDIGO SI NO SE ENCUENTRA: Si la herramienta 'checkRepuestoStock' devuelve que no lo encontró (found: false), PÍDELE AL CLIENTE EN UNA SOLA ORACIÓN QUE TE PASE EL CÓDIGO DE REPUESTO (código de pieza) para hacer una búsqueda exacta en el sistema (ej: "No lo encontré por nombre en el sistema de stock, ¿tendrías el código de repuesto a mano para buscarlo de forma exacta?").
         - Si el cliente te da el código de repuesto, volvé a llamar a 'checkRepuestoStock' usando el parámetro 'code'.
    b) **SERVICIO TÉCNICO Y TURNOS**:
-      - Si el cliente solicita service oficial o mantenimiento programado: DEBES PEDIRLE SÍ O SÍ en una sola oración breve su localidad, modelo de moto, AÑO y KILOMETRAJE ACTUAL (km) (ej: 'Para coordinar tu turno en el taller oficial, ¿de qué localidad sos, qué moto tenés, de qué año es y cuántos kilómetros tiene aproximadamente?'). Una vez obtenidos, ejecuta 'gestionar_lead_taller' enviando serviceType 'SERVICIO_TECNICO', city, motoModel, year y km.
+      - Si el cliente solicita service oficial o mantenimiento programado: DEBES PEDIRLE SÍ O SÍ en una sola oración breve su Nombre Completo, localidad, modelo de moto, AÑO y KILOMETRAJE ACTUAL (km) (ej: 'Para coordinar tu turno en el taller oficial, ¿cuál es tu nombre completo, de qué localidad sos, qué moto tenés, de qué año es y cuántos kilómetros tiene aproximadamente?'). Una vez obtenidos Nombre y Ciudad, ejecuta 'gestionar_lead_taller' o 'requestServiceAppointment'.
    c) **REPARACIONES Y FALLAS**:
-      - Si el cliente consulta por una reparación mecánica o falla: DEBES PEDIRLE SÍ O SÍ su localidad, modelo de moto, AÑO y KILOMETRAJE (km) antes de derivar. Ejecuta 'gestionar_lead_taller' enviando serviceType 'REPARACION', city, motoModel, year y km.
+      - Si el cliente consulta por una reparación mecánica o falla: DEBES PEDIRLE SÍ O SÍ su Nombre Completo, localidad, modelo de moto, AÑO y KILOMETRAJE (km) antes de derivar. Ejecuta 'gestionar_lead_taller' enviando serviceType 'REPARACION', city, motoModel, year y km.
    d) **GARANTÍAS OFICIALES**:
-      - Si el cliente consulta por reclamo de garantía oficial: DEBES PEDIRLE SÍ O SÍ su localidad, qué problema presenta, AÑO y KILOMETRAJE (km) para verificar la cobertura. Ejecuta 'gestionar_lead_taller' enviando serviceType 'GARANTIA', city, motoModel, year y km.
+      - Si el cliente consulta por reclamo de garantía oficial: DEBES PEDIRLE SÍ O SÍ su Nombre Completo, localidad, qué problema presenta, AÑO y KILOMETRAJE (km) para verificar la cobertura. Ejecuta 'gestionar_lead_taller' enviando serviceType 'GARANTIA', city, motoModel, year y km.
 
 
-2. **RECOLECCIÓN PASO A PASO DE DATOS (NOMBRE COMPLETO Y LUEGO CIUDAD)**:
+2. **RECOLECCIÓN PASO A PASO DE DATOS BÁSICOS OBLIGATORIOS (NOMBRE COMPLETO, CIUDAD, PROVINCIA Y TELÉFONO)**:
    a) REGLA PASO A PASO PARA OBTENER DATOS (NUNCA MEZCLAR NI PEDIR TODO JUNTO EN UN SOLO MENSAJE):
       - **PASO 1 (NOMBRE COMPLETO)**: Si el cliente aún no dio su Nombre y Apellido completo, solicítale su Nombre Completo en una oración breve (ej: "¡Hola! Para asesorarte bien con las motos y cuotas, ¿cuál es tu nombre completo?").
         - **MANDATO DE GUARDADO INMEDIATO**: Tan pronto el cliente envíe su Nombre y Apellido (ej: "Nestor fabian Veron"), DEBES EJECUTAR OBLIGATORIAMENTE la herramienta 'guardar_datos_usuario({ fullName: "Nestor fabian Veron" })' (o 'actualizar_lead_activo' si ya hay un lead activo) para persistirlo antes de enviar tu mensaje preguntando por la ciudad.
-      - **PASO 2 (CIUDAD / LOCALIDAD)**: Una vez que ya tenés su Nombre Completo (o Apellido), si aún no se conoce su Ciudad, solicítale únicamente de qué Ciudad o Localidad es (ej: "¡Buenísimo, Nestor! ¿De qué ciudad sos para ver las sucursales más cercanas y las cuotas por mes?").
+      - **PASO 2 (CIUDAD / LOCALIDAD Y PROVINCIA)**: Una vez que ya tenés su Nombre Completo (o Apellido), si aún no se conoce su Ciudad, solicítale únicamente de qué Ciudad o Localidad es (ej: "¡Buenísimo, Nestor! ¿De qué ciudad sos para ver las sucursales más cercanas y las cuotas por mes?").
+        - **DEDUCCIÓN AUTOMÁTICA DE PROVINCIA**: La provincia se deduce automáticamente de la ciudad (ej: Rosario -> Santa Fe, Paraná -> Entre Ríos, Goya -> Corrientes). Si la localidad no permite deducirla con certeza, pídele también su provincia.
         - **MANDATO DE GUARDADO INMEDIATO**: Tan pronto el cliente indique su Ciudad (ej: "Goya"), DEBES EJECUTAR OBLIGATORIAMENTE 'guardar_datos_usuario({ city: "Goya" })' (o 'crear_nuevo_lead' si no hay lead activo y ya dispones de Nombre y Ciudad) para persistirla en la base de datos y 'getSucursales({ locality: "Goya" })'.
+      - **PASO 3 (TELÉFONO OMNICANAL)**: Si el teléfono no viene capturado por la plataforma (como canales de Instagram, Facebook o web donde figura como null), solicítale en una oración breve su número de WhatsApp/teléfono de contacto. Si ya figura en el perfil (WhatsApp), ESTÁ PROHIBIDO pedirlo.
    b) REGLA ABSOLUTA ANTI-REPETICIÓN Y MEMORIA:
       - Si ya figura el Nombre del cliente en su perfil, **ESTÁ ESTRICTAMENTE PROHIBIDO VOLVER A PEDIR SU NOMBRE O APELLIDO**.
       - Si ya figura la Ciudad del cliente en su perfil, **ESTÁ ESTRICTAMENTE PROHIBIDO VOLVER A PEDIR SU CIUDAD O LOCALIDAD**.
@@ -195,8 +272,9 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
    h) PROHIBICIÓN DE PEDIR FOTOS O IMÁGENES DE DNI O RECIBO:
       - Si el cliente ofrece foto o archivo del recibo o DNI, aclarale que NO HACE FALTA enviar imágenes, ya que únicamente escribiendo por texto el número de DNI y género (M/F) podés consultar en el sistema.
 
-4. **PROHIBICIÓN ABSOLUTA DE PEDIR TELÉFONO O NÚMERO DE WHATSAPP**:
-   - ESTÁ TERMINANTEMENTE PROHIBIDO PEDIRLE EL TELÉFONO O CELULAR AL CLIENTE EN CUALQUIER MOMENTO. El teléfono se captura 100% automáticamente.
+4. **PROTOCOLO OMNICANAL DE TELÉFONO Y DATOS DE CONTACTO**:
+   - Si el teléfono YA figura en el perfil del cliente (como en WhatsApp donde se detecta automáticamente): ESTÁ ESTRICTAMENTE PROHIBIDO volver a pedir el número de teléfono o celular.
+   - Si el teléfono figura como null o pendiente (canales como Instagram, Facebook o web donde no viene dado por la plataforma): DEBES SOLICITARLE OBLIGATORIAMENTE su número de WhatsApp de contacto antes de confirmar turnos o derivar con un asesor.
 
 5. **VEHÍCULOS Y USADOS COMO PARTE DE PAGO (PLAN CANJE / PERMUTA)**:
    a) **Motos Usadas (Protocolo de 4 Datos Obligatorios)**:
@@ -227,7 +305,7 @@ REGLAS DE ORO DE ATENCIÓN (CRÍTICAS):
 
 8. **CAPTURA Y CARGA DE LEADS EN ZOHO CRM (REQUERIMIENTO DE NOMBRE Y APELLIDO)**:
    - Recolectar Nombre, Apellido, Ciudad y Provincia. Si te dice solo el primer nombre, solicitá el Apellido antes de ejecutar 'createLead'.
-   - Teléfono: AUTOMÁTICO desde Baileys. NUNCA SE LO PIDAS AL CLIENTE.
+   - Teléfono: Si ya figura en el perfil (WhatsApp), se toma automáticamente. Si falta, debe solicitarse obligatoriamente antes de enviar a Zoho.
    - **REGLA DE INMUTABILIDAD DEL NOMBRE DEL CLIENTE**: El primer Nombre y Apellido que el cliente te proporcione queda fijado como su identidad guardada. Si el cliente menciona otros nombres (ej: al dar los datos de un garante, familiar o pariente), PROHIBIDO cambiar el Nombre y Apellido del cliente titular en 'createLead', a menos que el cliente te pida explícitamente cambiar su propio nombre (ej: "cambiá mi nombre a...", "en realidad me llamo...").
    - **CAMPO 'Credito_aprobado' EN ZOHO CRM**: Si el cliente o cualquiera de sus garantes obtiene crédito preaprobado/aprobado (monto disponible > 0), envía 'creditoAprobado: true' al ejecutar 'createLead'.
    - **REGISTRO DE GARANTES Y CAMPO 'Garantes' EN ZOHO CRM**: Si evalúas o registras garantes o parientes, envíalos en el arreglo 'garantes' de 'createLead' especificando por cada uno su DNI, género, monto disponible si tiene y parentesco.
@@ -357,17 +435,48 @@ HORARIOS COMERCIALES DE ATENCIÓN EN TIEMPO REAL ⏰:
         usedVehicleStateText = "Sí (datos pendientes)";
     }
 
+    const rawFullName = (clientContext?.fullName || [clientContext?.firstName, clientContext?.lastName].filter(Boolean).join(' ') || '').trim();
+    const hasValidName = !!rawFullName && !rawFullName.toLowerCase().includes("sin nombre");
+    const rawCity = (clientContext?.city || '').trim();
+    const hasCity = !!rawCity;
+    const inferredState = inferStateFromCity(rawCity, clientContext?.state);
+    const rawPhone = (clientContext?.phone || '').toString().trim();
+    const hasPhone = !!rawPhone;
+
+    const missingIdentity: string[] = [];
+    if (!hasValidName) missingIdentity.push("Nombre y Apellido completo");
+    if (!hasCity) missingIdentity.push("Ciudad / Localidad de residencia");
+    if (!hasPhone) missingIdentity.push("Número de Teléfono / WhatsApp de contacto");
+
+    let missingGateBlock = "";
+    if (missingIdentity.length > 0) {
+        missingGateBlock = `
+--- ⚠️ PROTOCOLO DE IDENTIDAD BÁSICA OBLIGATORIA (GATEKEEPER ANTI-OLVIDO) ---
+¡ATENCIÓN MANU! Faltan los siguientes datos básicos obligatorios del cliente antes de avanzar:
+${missingIdentity.map(item => `  - [⚠️ PENDIENTE URGENTE]: ${item}`).join('\n')}
+
+MANDATO DE CIERRE ESTRICTO (PROHIBIDO OLVIDAR SOLICITARLO):
+1. Si el cliente hizo una consulta sobre motos, repuestos, precios, medios de pago o servicios, respóndele primero con amabilidad en 1 SOLA ORACIÓN CORTA.
+2. PERO ES TERMINANTEMENTE OBLIGATORIO CERRAR TU RESPUESTA PIDIENDO EL DATO BÁSICO PENDIENTE:
+${!hasValidName ? '   👉 Pregúntale su Nombre y Apellido completo (ej: "Para asesorarte mejor, ¿cuál es tu nombre completo?").\n' : ''}${hasValidName && !hasCity ? '   👉 Pregúntale de qué Ciudad o Localidad es (ej: "Para ver el stock y las sucursales más cercanas, ¿de qué ciudad o localidad sos?").\n' : ''}${!hasPhone ? '   👉 Solicítale su número de WhatsApp de contacto (ej: "¿Me podrías indicar un número de teléfono de contacto?").\n' : ''}3. ESTÁ ESTRICTAMENTE PROHIBIDO CERRAR LA RESPUESTA SIN PEDIR EL DATO PENDIENTE.
+4. PROHIBIDO ejecutar 'gestionar_lead_taller', 'requestServiceAppointment', 'crear_nuevo_lead' o 'createLead' sin contar con Nombre y Apellido y Ciudad.
+`;
+    }
+
     const clientStateBlock = `
 --- ESTADO ACTUAL DEL CLIENTE (${source}) ---
+- Nombre Completo: ${rawFullName || 'null'}
 - Nombre: ${clientContext?.firstName || 'null'}
 - Apellido: ${clientContext?.lastName || 'null'}
-- Ciudad de Residencia: ${clientContext?.city || 'null'}
+- Ciudad de Residencia: ${rawCity || 'null'}
+- Provincia: ${inferredState || clientContext?.state || 'null'}
+- Teléfono / WhatsApp: ${rawPhone || 'null'}
 - DNI: ${clientContext?.dni || 'null'}
 - Consulta Activa de Moto: ${clientContext?.interest || 'null'}
 - Medio de Pago: ${clientContext?.paymentMethod || 'null'}
 - Moto Usada en Parte de Pago: ${usedVehicleStateText}
 - Estado Comercial: ${clientContext?.leadStatus || 'SIN LEAD ACTIVO'}
-
+${missingGateBlock}
 REGLAS DE CONVERSACIÓN:
 1. PROHIBIDO volver a pedir datos personales o comerciales que ya tengan un valor asignado (distinto de null).
 2. Si el cliente menciona su nombre, ciudad o DNI, ejecuta inmediatamente la herramienta guardar_datos_usuario.
@@ -786,6 +895,8 @@ export class GeminiService {
                     if (name === "guardar_datos_usuario") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
+                        const resolvedCity = (args.city || '').trim() || undefined;
+                        const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
                         const userPayload = {
                             conversationId: conversationId,
                             phone: senderNumber || senderJid,
@@ -793,8 +904,8 @@ export class GeminiService {
                                 fullName: args.fullName,
                                 firstName: args.firstName,
                                 lastName: args.lastName,
-                                city: args.city,
-                                state: args.state,
+                                city: resolvedCity,
+                                state: resolvedState,
                                 dni: args.dni,
                                 gender: args.gender
                             }
@@ -813,6 +924,8 @@ export class GeminiService {
                     } else if (name === "gestionar_lead_comercial") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
+                        const resolvedCity = (args.city || '').trim() || undefined;
+                        const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
                         const commercialPayload = {
                             conversationId: conversationId,
                             phone: senderNumber || senderJid,
@@ -825,8 +938,8 @@ export class GeminiService {
                                 fullName: args.fullName,
                                 firstName: args.firstName,
                                 lastName: args.lastName,
-                                city: args.city,
-                                state: args.state,
+                                city: resolvedCity,
+                                state: resolvedState,
                                 dni: args.dni,
                                 gender: args.gender,
                                 garante: args.garante,
@@ -847,6 +960,8 @@ export class GeminiService {
                     } else if (name === "crear_nuevo_lead") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
+                        const resolvedCity = (args.city || '').trim() || undefined;
+                        const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
                         const leadPayload = {
                             conversationId: conversationId,
                             phone: senderNumber || senderJid,
@@ -858,8 +973,8 @@ export class GeminiService {
                             fullName: args.fullName,
                             firstName: args.firstName,
                             lastName: args.lastName,
-                            city: args.city,
-                            state: args.state,
+                            city: resolvedCity,
+                            state: resolvedState,
                             dni: args.dni,
                             garantes: args.garantes
                         };
@@ -877,6 +992,8 @@ export class GeminiService {
                     } else if (name === "actualizar_lead_activo") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
+                        const resolvedCity = (args.city || '').trim() || undefined;
+                        const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
                         const leadPayload = {
                             conversationId: conversationId,
                             phone: senderNumber || senderJid,
@@ -888,8 +1005,8 @@ export class GeminiService {
                             fullName: args.fullName,
                             firstName: args.firstName,
                             lastName: args.lastName,
-                            city: args.city,
-                            state: args.state,
+                            city: resolvedCity,
+                            state: resolvedState,
                             dni: args.dni,
                             garantes: args.garantes
                         };
@@ -925,6 +1042,8 @@ export class GeminiService {
                     } else if (name === "createLead") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
+                        const resolvedCity = (args.city || '').trim();
+                        const resolvedState = (args.state || '').trim() || inferStateFromCity(resolvedCity);
 
                         const leadPayload = {
                             jid: senderJid || senderNumber,
@@ -932,8 +1051,8 @@ export class GeminiService {
                             lastName: args.lastName || ".",
                             phone: senderNumber,
                             paymentMethod: args.paymentMethod,
-                            city: args.city,
-                            state: args.state,
+                            city: resolvedCity,
+                            state: resolvedState,
                             interest: args.interest,
                             dni: args.dni || "",
                             availableAmount: args.availableAmount || null,
@@ -963,70 +1082,114 @@ export class GeminiService {
                     } else if (name === "gestionar_lead_taller") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
-                        const clientName = (effectiveContext?.fullName || [effectiveContext?.firstName, effectiveContext?.lastName].filter(Boolean).join(' ') || '').trim();
+                        const clientName = (args.fullName || effectiveContext?.fullName || [effectiveContext?.firstName, effectiveContext?.lastName].filter(Boolean).join(' ') || '').trim();
+                        const effectiveCity = (args.city || effectiveContext?.city || '').trim();
+                        const effectivePhone = (senderNumber || senderJid || effectiveContext?.phone || '').trim();
 
-                        const descParts = [
-                            args.serviceDescription,
-                            args.motoModel ? `(Moto: ${args.motoModel})` : null,
-                            args.code ? `[Cód: ${args.code}]` : null
-                        ].filter(Boolean).join(' ');
+                        if (!clientName || clientName.toLowerCase().includes("sin nombre")) {
+                            console.warn(`[Gemini Tool gestionar_lead_taller] ⚠️ Interceptado: Falta Nombre del cliente.`);
+                            functionResult = {
+                                status: "missing_required_identity",
+                                missingField: "fullName",
+                                message: "Falta el Nombre y Apellido del cliente. Pídele amablemente su nombre completo en una sola oración antes de registrar la oportunidad de repuestos o taller."
+                            };
+                        } else if (!effectiveCity) {
+                            console.warn(`[Gemini Tool gestionar_lead_taller] ⚠️ Interceptado: Falta Ciudad del cliente.`);
+                            functionResult = {
+                                status: "missing_required_identity",
+                                missingField: "city",
+                                message: "Falta la Ciudad o Localidad del cliente. Pregúntale amablemente de qué localidad es antes de registrar la oportunidad de repuestos o taller."
+                            };
+                        } else {
+                            const descParts = [
+                                args.serviceDescription,
+                                args.motoModel ? `(Moto: ${args.motoModel})` : null,
+                                args.code ? `[Cód: ${args.code}]` : null
+                            ].filter(Boolean).join(' ');
 
-                        const workshopPayload = {
-                            conversationId,
-                            phone: senderNumber || senderJid,
-                            fullName: clientName || undefined,
-                            city: args.city,
-                            businessLine: 'TALLER',
-                            serviceType: args.serviceType || 'REPUESTOS',
-                            serviceDescription: descParts || args.serviceDescription || '',
-                            vehicleModel: args.motoModel || '',
-                            vehicleKm: args.km || args.vehicleKm || '',
-                            vehicleYear: args.year || args.vehicleYear || '',
-                            notes: args.notes || '',
-                            status: 'NUEVO',
-                            source: 'IA'
-                        };
+                            const resolvedState = inferStateFromCity(effectiveCity, effectiveContext?.state);
 
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 8000
-                            });
-                            console.log(`[WSP BOT Workshop] 🟢 gestionar_lead_taller exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
-                            functionResult = { status: "success", message: "Oportunidad de repuestos/taller registrada exitosamente en CRM." };
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool gestionar_lead_taller] ❌ Error: ${error.message}`);
-                            functionResult = { status: "success", message: "Consulta de taller registrada." };
+                            const workshopPayload = {
+                                conversationId,
+                                phone: effectivePhone,
+                                fullName: clientName,
+                                city: effectiveCity,
+                                state: resolvedState || undefined,
+                                businessLine: 'TALLER',
+                                serviceType: args.serviceType || 'REPUESTOS',
+                                serviceDescription: descParts || args.serviceDescription || '',
+                                vehicleModel: args.motoModel || '',
+                                vehicleKm: args.km || args.vehicleKm || '',
+                                vehicleYear: args.year || args.vehicleYear || '',
+                                notes: args.notes || '',
+                                status: 'NUEVO',
+                                source: 'IA'
+                            };
+
+                            try {
+                                const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
+                                    headers: { 'x-api-key': apiKey },
+                                    timeout: 8000
+                                });
+                                console.log(`[WSP BOT Workshop] 🟢 gestionar_lead_taller exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
+                                functionResult = { status: "success", message: "Oportunidad de repuestos/taller registrada exitosamente en CRM." };
+                            } catch (error: any) {
+                                console.error(`[Gemini Tool gestionar_lead_taller] ❌ Error: ${error.message}`);
+                                functionResult = { status: "success", message: "Consulta de taller registrada." };
+                            }
                         }
                     } else if (name === "requestServiceAppointment") {
                         const backendUrl = getCleanBackendUrl();
                         const apiKey = getApiKey();
                         console.log("[Gemini] Service appointment request:", args);
 
-                        const workshopPayload = {
-                            conversationId,
-                            phone: senderNumber || senderJid,
-                            fullName: args.name,
-                            city: args.city,
-                            businessLine: 'TALLER',
-                            serviceType: 'SERVICIO_TECNICO',
-                            serviceDescription: `${args.serviceType || 'Servicio Técnico / Mantenimiento'} (Moto: ${args.motoModel || 'No especificada'}) [Turno solicitado: ${args.preferredDate || 'A coordinar'}]`,
-                            vehicleModel: args.motoModel || '',
-                            scheduledDate: args.preferredDate || '',
-                            status: 'NUEVO',
-                            source: 'IA'
-                        };
+                        const clientName = (args.name || effectiveContext?.fullName || [effectiveContext?.firstName, effectiveContext?.lastName].filter(Boolean).join(' ') || '').trim();
+                        const effectiveCity = (args.city || effectiveContext?.city || '').trim();
+                        const effectivePhone = (senderNumber || senderJid || effectiveContext?.phone || '').trim();
 
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 8000
-                            });
-                            console.log(`[WSP BOT Workshop] 🟢 requestServiceAppointment exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
-                            functionResult = { status: "success", message: "Turno de taller registrado en CRM de manera exitosa." };
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool requestServiceAppointment] ❌ Error: ${error.message}`);
-                            functionResult = { status: "success", message: "Turno de taller registrado para ser confirmado por el asesor." };
+                        if (!clientName || clientName.toLowerCase().includes("sin nombre")) {
+                            console.warn(`[Gemini Tool requestServiceAppointment] ⚠️ Interceptado: Falta Nombre del cliente.`);
+                            functionResult = {
+                                status: "missing_required_identity",
+                                missingField: "fullName",
+                                message: "Falta el Nombre y Apellido del cliente. Solicítale amablemente su nombre completo antes de agendar el turno de taller."
+                            };
+                        } else if (!effectiveCity) {
+                            console.warn(`[Gemini Tool requestServiceAppointment] ⚠️ Interceptado: Falta Ciudad del cliente.`);
+                            functionResult = {
+                                status: "missing_required_identity",
+                                missingField: "city",
+                                message: "Falta la Ciudad o Localidad del cliente. Pregúntale de qué localidad es antes de agendar el turno de taller."
+                            };
+                        } else {
+                            const resolvedState = inferStateFromCity(effectiveCity, effectiveContext?.state);
+
+                            const workshopPayload = {
+                                conversationId,
+                                phone: effectivePhone,
+                                fullName: clientName,
+                                city: effectiveCity,
+                                state: resolvedState || undefined,
+                                businessLine: 'TALLER',
+                                serviceType: 'SERVICIO_TECNICO',
+                                serviceDescription: `${args.serviceType || 'Servicio Técnico / Mantenimiento'} (Moto: ${args.motoModel || 'No especificada'}) [Turno solicitado: ${args.preferredDate || 'A coordinar'}]`,
+                                vehicleModel: args.motoModel || '',
+                                scheduledDate: args.preferredDate || '',
+                                status: 'NUEVO',
+                                source: 'IA'
+                            };
+
+                            try {
+                                const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
+                                    headers: { 'x-api-key': apiKey },
+                                    timeout: 8000
+                                });
+                                console.log(`[WSP BOT Workshop] 🟢 requestServiceAppointment exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
+                                functionResult = { status: "success", message: "Turno de taller registrado en CRM de manera exitosa." };
+                            } catch (error: any) {
+                                console.error(`[Gemini Tool requestServiceAppointment] ❌ Error: ${error.message}`);
+                                functionResult = { status: "success", message: "Turno de taller registrado para ser confirmado por el asesor." };
+                            }
                         }
                     } else if (name === "checkRepuestoStock") {
                         const backendUrl = getCleanBackendUrl();
