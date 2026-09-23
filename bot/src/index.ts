@@ -90,12 +90,79 @@ app.get('/status', (req, res) => {
     });
 });
 
+import geminiService from './services/gemini';
+import axios from 'axios';
+
 // Endpoint para desvincular/logout de WhatsApp Commercial Bot
 app.post('/logout', authMiddleware, async (req, res) => {
     try {
         await whatsappService.logout();
         res.status(200).json({ status: 'success', message: 'WhatsApp Commercial Bot session logged out.' });
     } catch (error: any) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint para procesar mensajes de canales omnicanal (Instagram Direct y Facebook Messenger)
+app.post('/api/v1/bot/chat', async (req, res) => {
+    try {
+        const { conversationId, channel, senderId, text } = req.body;
+        if (!conversationId || !text) {
+            return res.status(400).json({ error: 'conversationId y text son requeridos' });
+        }
+
+        const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+        const apiKey = process.env.BACKEND_API_KEY || process.env.SYSTEM_ADMIN_API_KEY || '';
+
+        // 1. Obtener contexto del cliente desde backend si existe
+        let clientContext: any = null;
+        try {
+            const contextRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/resolve-context/${conversationId}`, {
+                headers: { 'x-api-key': apiKey },
+                timeout: 10000
+            });
+            clientContext = contextRes.data?.data || null;
+        } catch (e) {
+            // No bloqueante
+        }
+
+        // 2. Obtener historial previo de la conversación desde backend
+        let history: any[] = [];
+        try {
+            const chatRes = await axios.get(`${backendUrl}/api/v1/crm/conversations/${encodeURIComponent(conversationId)}`, {
+                headers: { 'x-api-key': apiKey },
+                timeout: 10000
+            });
+            const rawMsgs = chatRes.data?.data?.messages || chatRes.data?.data?.conversation?.messages || [];
+            if (Array.isArray(rawMsgs)) {
+                history = rawMsgs.map((m: any) => ({
+                    role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: m.text || '' }]
+                })).filter((h: any) => h.parts[0].text);
+            }
+        } catch (e) {
+            // No bloqueante
+        }
+
+        const senderJid = `${(channel || 'META').toLowerCase()}:${senderId}`;
+
+        // 3. Invocar a Manuel Botardo (Gemini)
+        const aiResult = await geminiService.chat(
+            text,
+            history,
+            "",
+            senderJid,
+            clientContext,
+            conversationId,
+            ""
+        );
+
+        res.status(200).json({
+            status: true,
+            replyText: aiResult?.text || ""
+        });
+    } catch (error: any) {
+        console.error(`[WSP BOT Omnichannel Chat Error]:`, error.message);
         res.status(500).json({ error: error.message });
     }
 });
