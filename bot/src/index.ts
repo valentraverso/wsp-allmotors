@@ -111,7 +111,7 @@ app.post('/api/v1/bot/chat', async (req, res) => {
             return res.status(400).json({ error: 'conversationId y text son requeridos' });
         }
 
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:3000';
+        const backendUrl = process.env.BACKEND_URL || 'http://localhost:4000';
         const apiKey = process.env.BACKEND_API_KEY || process.env.SYSTEM_ADMIN_API_KEY || '';
 
         // 1. Obtener contexto del cliente desde backend si existe
