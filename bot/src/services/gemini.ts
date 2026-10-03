@@ -800,7 +800,7 @@ export function getSlidingWindowMessages(messages: any[], max = 8) {
 }
 
 export class GeminiService {
-    private async generateContentWithRetry(contents: any[], clientContext?: any, attempts = 3): Promise<any> {
+    private async generateContentWithRetry(contents: any[], clientContext?: any, attempts = 3, includeTools = true): Promise<any> {
         const currentModel = "gemini-3.5-flash-lite";
         const retryDelayMs = 120000;
 
@@ -811,13 +811,16 @@ export class GeminiService {
                     console.log(`[Gemini Retry] Intento ${i + 1}/${attempts} tras esperar 2 minutos (${currentModel})...`);
                 }
                 const client = await getGeminiClient();
+                const config: any = {
+                    systemInstruction: buildDynamicSystemInstruction(clientContext),
+                };
+                if (includeTools) {
+                    config.tools = tools;
+                }
                 const result = await client.models.generateContent({
                     model: currentModel,
                     contents: contents,
-                    config: {
-                        systemInstruction: buildDynamicSystemInstruction(clientContext),
-                        tools: tools,
-                    }
+                    config: config
                 });
                 return result;
             } catch (err: any) {
@@ -836,6 +839,517 @@ export class GeminiService {
             }
         }
         throw lastError;
+    }
+
+    private extractTextFromCandidate(candidate: any): string {
+        const parts = candidate?.content?.parts || [];
+        return parts
+            .filter((p: any) => typeof p?.text === 'string' && p.text.trim().length > 0)
+            .map((p: any) => p.text.trim())
+            .join('\n')
+            .trim();
+    }
+
+    private async executeSingleTool(
+        name: string,
+        args: any,
+        context: {
+            conversationId?: string;
+            senderNumber: string;
+            senderJid: string;
+            effectiveContext: any;
+            onDeferredCreditCheck?: (data: any) => void;
+        }
+    ): Promise<any> {
+        const { conversationId, senderNumber, senderJid, effectiveContext, onDeferredCreditCheck } = context;
+
+        function getCleanBackendUrl(): string {
+            const raw = (process.env.BACKEND_URL || 'http://localhost:4000').trim();
+            return raw.replace(/\/api\/v1\/?$/i, '').replace(/\/+$/, '');
+        }
+
+        console.log(`[Gemini] Executing Tool: ${name}`, args);
+
+        let functionResult: any;
+        if (name === "guardar_datos_usuario") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            const resolvedCity = (args.city || '').trim() || undefined;
+            const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
+            const userPayload = {
+                conversationId: conversationId,
+                phone: senderNumber || senderJid,
+                fields: {
+                    fullName: args.fullName,
+                    firstName: args.firstName,
+                    lastName: args.lastName,
+                    city: resolvedCity,
+                    state: resolvedState,
+                    dni: args.dni,
+                    gender: args.gender
+                }
+            };
+            try {
+                const res = await axios.post(`${backendUrl}/api/v1/crm/user/guardar-datos`, userPayload, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                });
+                console.log(`[WSP BOT Identity] 🟢 guardar_datos_usuario exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
+                functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Datos del usuario guardados exitosamente." };
+            } catch (error: any) {
+                console.error(`[Gemini Tool guardar_datos_usuario] ❌ Error: ${error.message}`);
+                functionResult = { status: "success", message: "Datos del usuario registrados." };
+            }
+        } else if (name === "gestionar_lead_comercial") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            const resolvedCity = (args.city || '').trim() || undefined;
+            const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
+            const commercialPayload = {
+                conversationId: conversationId,
+                phone: senderNumber || senderJid,
+                fields: {
+                    interest: args.interest,
+                    paymentMethod: args.paymentMethod,
+                    tradeIn: args.tradeIn,
+                    usedVehicle: args.usedVehicle,
+                    notes: args.notes,
+                    fullName: args.fullName,
+                    firstName: args.firstName,
+                    lastName: args.lastName,
+                    city: resolvedCity,
+                    state: resolvedState,
+                    dni: args.dni,
+                    gender: args.gender,
+                    garante: args.garante,
+                    garantes: args.garantes
+                }
+            };
+            try {
+                const res = await axios.post(`${backendUrl}/api/v1/crm/lead/gestionar-comercial`, commercialPayload, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                });
+                console.log(`[WSP BOT Commercial] 🟢 gestionar_lead_comercial exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
+                functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead comercial gestionado exitosamente." };
+            } catch (error: any) {
+                console.error(`[Gemini Tool gestionar_lead_comercial] ❌ Error: ${error.message}`);
+                functionResult = { status: "success", message: "Oportunidad comercial registrada." };
+            }
+        } else if (name === "crear_nuevo_lead") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            const resolvedCity = (args.city || '').trim() || undefined;
+            const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
+            const leadPayload = {
+                conversationId: conversationId,
+                phone: senderNumber || senderJid,
+                interest: args.interest,
+                paymentMethod: args.paymentMethod,
+                tradeIn: args.tradeIn,
+                usedVehicle: args.usedVehicle,
+                notes: args.notes,
+                fullName: args.fullName,
+                firstName: args.firstName,
+                lastName: args.lastName,
+                city: resolvedCity,
+                state: resolvedState,
+                dni: args.dni,
+                garantes: args.garantes
+            };
+            try {
+                const res = await axios.post(`${backendUrl}/api/v1/crm/lead/crear-nuevo`, leadPayload, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                });
+                console.log(`[WSP BOT Lead] 🟢 crear_nuevo_lead exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
+                functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead creado exitosamente en estado NUEVO." };
+            } catch (error: any) {
+                console.error(`[Gemini Tool crear_nuevo_lead] ❌ Error: ${error.message}`);
+                functionResult = { status: "success", message: "Lead registrado exitosamente." };
+            }
+        } else if (name === "actualizar_lead_activo") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            const resolvedCity = (args.city || '').trim() || undefined;
+            const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
+            const leadPayload = {
+                conversationId: conversationId,
+                phone: senderNumber || senderJid,
+                interest: args.interest,
+                paymentMethod: args.paymentMethod,
+                tradeIn: args.tradeIn,
+                usedVehicle: args.usedVehicle,
+                notes: args.notes,
+                fullName: args.fullName,
+                firstName: args.firstName,
+                lastName: args.lastName,
+                city: resolvedCity,
+                state: resolvedState,
+                dni: args.dni,
+                garantes: args.garantes
+            };
+            try {
+                const res = await axios.post(`${backendUrl}/api/v1/crm/lead/actualizar-activo`, leadPayload, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                });
+                console.log(`[WSP BOT Lead] 🟢 actualizar_lead_activo exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
+                functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead activo actualizado exitosamente." };
+            } catch (error: any) {
+                console.error(`[Gemini Tool actualizar_lead_activo] ❌ Error: ${error.message}`);
+                functionResult = { status: "success", message: "Lead activo actualizado." };
+            }
+        } else if (name === "registrar_reclamo_contacto") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            try {
+                const res = await axios.post(`${backendUrl}/api/v1/crm/lead/registrar-reclamo`, {
+                    conversationId: conversationId,
+                    phone: senderNumber || senderJid,
+                    motivo: args.motivo
+                }, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                });
+                console.log(`[WSP BOT Lead] 🟢 registrar_reclamo_contacto exitoso para ${conversationId}:`, res.data?.data?.message || res.data?.message);
+                functionResult = { status: "success", message: "Reclamo de contacto registrado. Estado actualizado a RECLAMA CONTACTO." };
+            } catch (error: any) {
+                console.error(`[Gemini Tool registrar_reclamo_contacto] ❌ Error: ${error.message}`);
+                functionResult = { status: "success", message: "Reclamo registrado exitosamente." };
+            }
+        } else if (name === "createLead") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            const resolvedCity = (args.city || '').trim();
+            const resolvedState = (args.state || '').trim() || inferStateFromCity(resolvedCity);
+
+            const leadPayload = {
+                jid: senderJid || senderNumber,
+                firstName: args.firstName,
+                lastName: args.lastName || ".",
+                phone: senderNumber,
+                paymentMethod: args.paymentMethod,
+                city: resolvedCity,
+                state: resolvedState,
+                interest: args.interest,
+                dni: args.dni || "",
+                availableAmount: args.availableAmount || null,
+                creditoAprobado: args.creditoAprobado || false,
+                forceUpdateName: args.forceUpdateName || false,
+                garantes: args.garantes || [],
+                leadSource: "IA"
+            };
+
+            console.log(`[Gemini Tool createLead] Sending/Updating Lead in Zoho CRM via Backend:`, JSON.stringify(leadPayload));
+
+            try {
+                const res = await axios.post(`${backendUrl}/api/v1/crm/lead/upsert`, leadPayload, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                });
+
+                console.log(`[WSP BOT ZOHO LOG] 🟢 CLIENTE GUARDADO EN ZOHO CRM CON ÉXITO: "${args.firstName} ${args.lastName || ''}" | Celular: ${senderNumber} | Ciudad: ${args.city} | Origen: IA | ZohoID: ${res.data?.zohoLeadId || 'OK'}`);
+                functionResult = { status: "success", message: "Lead registrado/actualizado exitosamente en Zoho CRM (Módulo Leads)." };
+            } catch (error: any) {
+                console.error(`[Gemini Tool createLead] ❌ ERROR uploading Lead to Zoho: ${error.message}`);
+                if (error.response) {
+                    console.error(`[Gemini Tool createLead] ❌ Response:`, JSON.stringify(error.response.data));
+                }
+                functionResult = { status: "success", message: "Lead registrado exitosamente." };
+            }
+        } else if (name === "gestionar_lead_taller") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            const clientName = (args.fullName || effectiveContext?.fullName || [effectiveContext?.firstName, effectiveContext?.lastName].filter(Boolean).join(' ') || '').trim();
+            const effectiveCity = (args.city || effectiveContext?.city || '').trim();
+            const effectivePhone = (senderNumber || senderJid || effectiveContext?.phone || '').trim();
+
+            if (!clientName || clientName.toLowerCase().includes("sin nombre")) {
+                console.warn(`[Gemini Tool gestionar_lead_taller] ⚠️ Interceptado: Falta Nombre del cliente.`);
+                functionResult = {
+                    status: "missing_required_identity",
+                    missingField: "fullName",
+                    message: "Falta el Nombre y Apellido del cliente. Pídele amablemente su nombre completo en una sola oración antes de registrar la oportunidad de repuestos o taller."
+                };
+            } else if (!effectiveCity) {
+                console.warn(`[Gemini Tool gestionar_lead_taller] ⚠️ Interceptado: Falta Ciudad del cliente.`);
+                functionResult = {
+                    status: "missing_required_identity",
+                    missingField: "city",
+                    message: "Falta la Ciudad o Localidad del cliente. Pregúntale amablemente de qué localidad es antes de registrar la oportunidad de repuestos o taller."
+                };
+            } else {
+                const descParts = [
+                    args.serviceDescription,
+                    args.motoModel ? `(Moto: ${args.motoModel})` : null,
+                    args.code ? `[Cód: ${args.code}]` : null
+                ].filter(Boolean).join(' ');
+
+                const resolvedState = inferStateFromCity(effectiveCity, effectiveContext?.state);
+
+                const workshopPayload = {
+                    conversationId,
+                    phone: effectivePhone,
+                    fullName: clientName,
+                    city: effectiveCity,
+                    state: resolvedState || undefined,
+                    businessLine: 'TALLER',
+                    serviceType: args.serviceType || 'REPUESTOS',
+                    serviceDescription: descParts || args.serviceDescription || '',
+                    vehicleModel: args.motoModel || '',
+                    vehicleKm: args.km || args.vehicleKm || '',
+                    vehicleYear: args.year || args.vehicleYear || '',
+                    notes: args.notes || '',
+                    status: 'NUEVO',
+                    source: 'IA'
+                };
+
+                try {
+                    const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 8000
+                    });
+                    console.log(`[WSP BOT Workshop] 🟢 gestionar_lead_taller exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
+                    functionResult = { status: "success", message: "Oportunidad de repuestos/taller registrada exitosamente en CRM." };
+                } catch (error: any) {
+                    console.error(`[Gemini Tool gestionar_lead_taller] ❌ Error: ${error.message}`);
+                    functionResult = { status: "success", message: "Consulta de taller registrada." };
+                }
+            }
+        } else if (name === "requestServiceAppointment") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            console.log("[Gemini] Service appointment request:", args);
+
+            const clientName = (args.name || effectiveContext?.fullName || [effectiveContext?.firstName, effectiveContext?.lastName].filter(Boolean).join(' ') || '').trim();
+            const effectiveCity = (args.city || effectiveContext?.city || '').trim();
+            const effectivePhone = (senderNumber || senderJid || effectiveContext?.phone || '').trim();
+
+            if (!clientName || clientName.toLowerCase().includes("sin nombre")) {
+                console.warn(`[Gemini Tool requestServiceAppointment] ⚠️ Interceptado: Falta Nombre del cliente.`);
+                functionResult = {
+                    status: "missing_required_identity",
+                    missingField: "fullName",
+                    message: "Falta el Nombre y Apellido del cliente. Solicítale amablemente su nombre completo antes de agendar el turno de taller."
+                };
+            } else if (!effectiveCity) {
+                console.warn(`[Gemini Tool requestServiceAppointment] ⚠️ Interceptado: Falta Ciudad del cliente.`);
+                functionResult = {
+                    status: "missing_required_identity",
+                    missingField: "city",
+                    message: "Falta la Ciudad o Localidad del cliente. Pregúntale de qué localidad es antes de agendar el turno de taller."
+                };
+            } else {
+                const resolvedState = inferStateFromCity(effectiveCity, effectiveContext?.state);
+
+                const workshopPayload = {
+                    conversationId,
+                    phone: effectivePhone,
+                    fullName: clientName,
+                    city: effectiveCity,
+                    state: resolvedState || undefined,
+                    businessLine: 'TALLER',
+                    serviceType: 'SERVICIO_TECNICO',
+                    serviceDescription: `${args.serviceType || 'Servicio Técnico / Mantenimiento'} (Moto: ${args.motoModel || 'No especificada'}) [Turno solicitado: ${args.preferredDate || 'A coordinar'}]`,
+                    vehicleModel: args.motoModel || '',
+                    scheduledDate: args.preferredDate || '',
+                    status: 'NUEVO',
+                    source: 'IA'
+                };
+
+                try {
+                    const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 8000
+                    });
+                    console.log(`[WSP BOT Workshop] 🟢 requestServiceAppointment exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
+                    functionResult = { status: "success", message: "Turno de taller registrado en CRM de manera exitosa." };
+                } catch (error: any) {
+                    console.error(`[Gemini Tool requestServiceAppointment] ❌ Error: ${error.message}`);
+                    functionResult = { status: "success", message: "Turno de taller registrado para ser confirmado por el asesor." };
+                }
+            }
+        } else if (name === "checkRepuestoStock") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            
+            console.log(`[Gemini Tool checkRepuestoStock] Searching: "${args.repuestoName || args.code}" | Locality: ${args.locality}`);
+
+            try {
+                const res = await axios.get(`${backendUrl}/api/v1/repuestos/stock/search`, {
+                    params: { 
+                        query: args.repuestoName || "", 
+                        code: args.code || "", 
+                        locality: args.locality 
+                    },
+                    headers: { 'x-api-key': apiKey }
+                });
+                console.log(`[Gemini Tool checkRepuestoStock] ✅ Success ${res.status}:`, JSON.stringify(res.data));
+                functionResult = res.data;
+            } catch (error: any) {
+                console.error(`[Gemini Tool checkRepuestoStock] ❌ HTTP ERROR: ${error.message}`);
+                functionResult = {
+                    status: "success",
+                    found: false,
+                    repuestoName: args.repuestoName,
+                    code: args.code,
+                    locality: args.locality,
+                    message: `No se encontró stock para "${args.code || args.repuestoName}" en ${args.locality}.`
+                };
+            }
+        } else if (name === "checkFinancing" || name === "evaluarCredito") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            const dniClean = (args.dni || "").toString().replace(/\D/g, "");
+            const rawGender = (args.gender || args.genero || "M").toString().toUpperCase();
+            const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
+
+            const isGuarantor = Boolean(args.esGarante);
+            const guarantorName = (args.nombreGarante || "").trim();
+            const relationship = (args.parentesco || "").trim();
+
+            console.log(`[Gemini Tool ${name} - Async] 🚀 Disparando consulta de crédito en background para DNI: ${dniClean} | Género: ${genderClean} | EsGarante: ${isGuarantor}`);
+
+            if (dniClean && !isGuarantor) {
+                axios.post(`${backendUrl}/api/v1/crm/user/guardar-datos`, {
+                    conversationId: conversationId,
+                    phone: senderNumber || senderJid,
+                    fields: {
+                        dni: dniClean,
+                        gender: genderClean
+                    }
+                }, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                }).then(res => {
+                    console.log(`[WSP BOT Credit DNI Persist] 🟢 DNI ${dniClean} y Género ${genderClean} persistidos en perfil titular.`);
+                }).catch(err => {
+                    console.warn(`[WSP BOT Credit DNI Persist Warning]: ${err.message}`);
+                });
+            } else if (dniClean && isGuarantor) {
+                axios.post(`${backendUrl}/api/v1/crm/lead/gestionar-comercial`, {
+                    conversationId: conversationId,
+                    phone: senderNumber || senderJid,
+                    fields: {
+                        garante: {
+                            dni: dniClean,
+                            nombre: guarantorName,
+                            parentesco: relationship,
+                            genero: genderClean
+                        }
+                    }
+                }, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                }).then(res => {
+                    console.log(`[WSP BOT Credit Garante Persist] 🟢 Garante DNI ${dniClean} (${guarantorName}) registrado en lista de garantes.`);
+                }).catch(err => {
+                    console.warn(`[WSP BOT Credit Garante Persist Warning]: ${err.message}`);
+                });
+            }
+
+            if (onDeferredCreditCheck && dniClean) {
+                try {
+                    onDeferredCreditCheck({
+                        jid: senderJid || `${senderNumber}@s.whatsapp.net`,
+                        senderNumber,
+                        dni: dniClean,
+                        gender: genderClean,
+                        conversationId,
+                        isGuarantor,
+                        guarantorName,
+                        relationship
+                    });
+                } catch (cbErr: any) {
+                    console.error(`[Gemini Tool ${name} Callback Error]:`, cbErr.message);
+                }
+            }
+
+            functionResult = {
+                status: "in_progress",
+                dni: dniClean,
+                gender: genderClean,
+                message: "La consulta de crédito se inició en segundo plano. Confírmale al cliente que ya estás consultando el sistema y pregúntale qué modelo busca mientras espera."
+            };
+        } else if (name === "getSucursales") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+
+            try {
+                let res: any;
+                const headers = apiKey ? { 'x-api-key': apiKey } : {};
+                try {
+                    res = await axios.get(`${backendUrl}/api/v1/sucursales/public/list`, {
+                        headers,
+                        timeout: 10000
+                    });
+                } catch (e: any) {
+                    res = await axios.get(`${backendUrl}/api/v1/sucursales/all`, {
+                        headers,
+                        timeout: 10000
+                    });
+                }
+
+                const allSucursales: any[] = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : []);
+                const queryClean = (args.locality || "").toString().toLowerCase().trim();
+
+                const filtered = allSucursales.filter((s: any) => {
+                    const ciudadStr = (s.ciudad || s.Ciudad || s.nombre || s.Nombre || "").toString().toLowerCase();
+                    const provinciaStr = (s.provincia || s.Provincia || "").toString().toLowerCase();
+                    const direccionStr = (s.direccion || s.Direccion || "").toString().toLowerCase();
+
+                    return ciudadStr.includes(queryClean) || queryClean.includes(ciudadStr) ||
+                           provinciaStr.includes(queryClean) || queryClean.includes(provinciaStr) ||
+                           direccionStr.includes(queryClean);
+                });
+
+                const listToReturn = filtered.length > 0 ? filtered : allSucursales;
+                const resultList = listToReturn.map((s: any) => ({
+                    nombre: s.nombre || s.Nombre || "Sucursal All Motors",
+                    direccion: s.direccion || s.Direccion || "Dirección no especificada",
+                    ciudad: s.ciudad || s.Ciudad || "",
+                    provincia: s.provincia || s.Provincia || "",
+                    telefono: s.telefono || s.Telefono || ""
+                }));
+
+                functionResult = {
+                    status: "success",
+                    locality: args.locality,
+                    count: resultList.length,
+                    sucursales: resultList
+                };
+            } catch (error: any) {
+                functionResult = {
+                    status: "error",
+                    message: "No se pudieron obtener las sucursales en este momento."
+                };
+            }
+        } else if (name === "getClientProfile") {
+            const backendUrl = getCleanBackendUrl();
+            const apiKey = getApiKey();
+            const target = args.phoneOrDni || senderJid || senderNumber;
+            console.log(`[Gemini Tool getClientProfile] Querying DB for target: ${target}`);
+            try {
+                const res = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${encodeURIComponent(target)}`, {
+                    headers: { 'x-api-key': apiKey },
+                    timeout: 15000
+                });
+                const foundLead = res.data?.data?.lead;
+                if (foundLead) {
+                    console.log(`[Gemini Tool getClientProfile] ✅ Found lead profile:`, JSON.stringify(foundLead));
+                    functionResult = { status: "success", lead: foundLead };
+                } else {
+                    functionResult = { status: "success", lead: null, message: "No hay ficha registrada previa para este cliente." };
+                }
+            } catch (error: any) {
+                functionResult = { status: "error", message: `Error consultando perfil: ${error.message}` };
+            }
+        } else {
+            functionResult = { status: "error", message: `Herramienta desconocida: ${name}` };
+        }
+
+        return functionResult;
     }
 
     async chat(
@@ -863,512 +1377,52 @@ export class GeminiService {
 
             // VENTANA DESLIZANTE (SLIDING WINDOW): Últimos 8 mensajes garantizando que inicie con rol 'user'
             const trimmedHistory = getSlidingWindowMessages(history, 8);
-            const contentsPayload = [
+            let currentContents: any[] = [
                 ...trimmedHistory,
                 { role: "user", parts: [{ text: message }] }
             ];
 
-            const result = await this.generateContentWithRetry(contentsPayload, effectiveContext);
+            const MAX_TOOL_TURNS = 3;
+            let finalContent = "";
+            let toolsExecutedCount = 0;
+            let lastExecutedToolName = "";
 
-            const candidate = result.candidates?.[0];
-            let content = candidate?.content?.parts?.[0]?.text || "";
-            
-            const calls = candidate?.content?.parts?.filter((p: any) => p.functionCall) || [];
-            
-            if (calls.length > 0) {
-                const toolResults = [];
+            for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+                // En el último turno permitido, no incluimos tools para forzar a Gemini a generar texto conversacional
+                const allowTools = turn < (MAX_TOOL_TURNS - 1);
+                const result = await this.generateContentWithRetry(currentContents, effectiveContext, 3, allowTools);
+
+                const candidate = result.candidates?.[0];
+                const extractedText = this.extractTextFromCandidate(candidate);
+                const calls = candidate?.content?.parts?.filter((p: any) => p.functionCall) || [];
+
+                if (extractedText) {
+                    finalContent = extractedText;
+                }
+
+                if (!allowTools || calls.length === 0) {
+                    // Gemini ya produjo una respuesta de texto sin requerir más llamadas a herramientas
+                    break;
+                }
+
+                // Ejecutar herramientas en paralelo o secuencial
+                const toolResults: any[] = [];
                 for (const call of calls) {
                     const functionCall = call.functionCall;
                     if (!functionCall) continue;
-                    
                     const name = functionCall.name;
                     const args = functionCall.args as any;
-                    
-                    console.log(`[Gemini] Executing Tool: ${name}`, args);
 
-                    function getCleanBackendUrl(): string {
-                        const raw = (process.env.BACKEND_URL || 'http://localhost:4000').trim();
-                        return raw.replace(/\/api\/v1\/?$/i, '').replace(/\/+$/, '');
-                    }
+                    lastExecutedToolName = name;
+                    toolsExecutedCount++;
 
-                    let functionResult;
-                    if (name === "guardar_datos_usuario") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        const resolvedCity = (args.city || '').trim() || undefined;
-                        const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
-                        const userPayload = {
-                            conversationId: conversationId,
-                            phone: senderNumber || senderJid,
-                            fields: {
-                                fullName: args.fullName,
-                                firstName: args.firstName,
-                                lastName: args.lastName,
-                                city: resolvedCity,
-                                state: resolvedState,
-                                dni: args.dni,
-                                gender: args.gender
-                            }
-                        };
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/user/guardar-datos`, userPayload, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            });
-                            console.log(`[WSP BOT Identity] 🟢 guardar_datos_usuario exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
-                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Datos del usuario guardados exitosamente." };
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool guardar_datos_usuario] ❌ Error: ${error.message}`);
-                            functionResult = { status: "success", message: "Datos del usuario registrados." };
-                        }
-                    } else if (name === "gestionar_lead_comercial") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        const resolvedCity = (args.city || '').trim() || undefined;
-                        const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
-                        const commercialPayload = {
-                            conversationId: conversationId,
-                            phone: senderNumber || senderJid,
-                            fields: {
-                                interest: args.interest,
-                                paymentMethod: args.paymentMethod,
-                                tradeIn: args.tradeIn,
-                                usedVehicle: args.usedVehicle,
-                                notes: args.notes,
-                                fullName: args.fullName,
-                                firstName: args.firstName,
-                                lastName: args.lastName,
-                                city: resolvedCity,
-                                state: resolvedState,
-                                dni: args.dni,
-                                gender: args.gender,
-                                garante: args.garante,
-                                garantes: args.garantes
-                            }
-                        };
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/gestionar-comercial`, commercialPayload, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            });
-                            console.log(`[WSP BOT Commercial] 🟢 gestionar_lead_comercial exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
-                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead comercial gestionado exitosamente." };
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool gestionar_lead_comercial] ❌ Error: ${error.message}`);
-                            functionResult = { status: "success", message: "Oportunidad comercial registrada." };
-                        }
-                    } else if (name === "crear_nuevo_lead") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        const resolvedCity = (args.city || '').trim() || undefined;
-                        const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
-                        const leadPayload = {
-                            conversationId: conversationId,
-                            phone: senderNumber || senderJid,
-                            interest: args.interest,
-                            paymentMethod: args.paymentMethod,
-                            tradeIn: args.tradeIn,
-                            usedVehicle: args.usedVehicle,
-                            notes: args.notes,
-                            fullName: args.fullName,
-                            firstName: args.firstName,
-                            lastName: args.lastName,
-                            city: resolvedCity,
-                            state: resolvedState,
-                            dni: args.dni,
-                            garantes: args.garantes
-                        };
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/crear-nuevo`, leadPayload, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            });
-                            console.log(`[WSP BOT Lead] 🟢 crear_nuevo_lead exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
-                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead creado exitosamente en estado NUEVO." };
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool crear_nuevo_lead] ❌ Error: ${error.message}`);
-                            functionResult = { status: "success", message: "Lead registrado exitosamente." };
-                        }
-                    } else if (name === "actualizar_lead_activo") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        const resolvedCity = (args.city || '').trim() || undefined;
-                        const resolvedState = (args.state || '').trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
-                        const leadPayload = {
-                            conversationId: conversationId,
-                            phone: senderNumber || senderJid,
-                            interest: args.interest,
-                            paymentMethod: args.paymentMethod,
-                            tradeIn: args.tradeIn,
-                            usedVehicle: args.usedVehicle,
-                            notes: args.notes,
-                            fullName: args.fullName,
-                            firstName: args.firstName,
-                            lastName: args.lastName,
-                            city: resolvedCity,
-                            state: resolvedState,
-                            dni: args.dni,
-                            garantes: args.garantes
-                        };
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/actualizar-activo`, leadPayload, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            });
-                            console.log(`[WSP BOT Lead] 🟢 actualizar_lead_activo exitoso para ${senderNumber}:`, res.data?.data?.message || res.data?.message);
-                            functionResult = { status: "success", message: res.data?.data?.message || res.data?.message || "Lead activo actualizado exitosamente." };
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool actualizar_lead_activo] ❌ Error: ${error.message}`);
-                            functionResult = { status: "success", message: "Lead activo actualizado." };
-                        }
-                    } else if (name === "registrar_reclamo_contacto") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/registrar-reclamo`, {
-                                conversationId: conversationId,
-                                phone: senderNumber || senderJid,
-                                motivo: args.motivo
-                            }, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            });
-                            console.log(`[WSP BOT Lead] 🟢 registrar_reclamo_contacto exitoso para ${conversationId}:`, res.data?.data?.message || res.data?.message);
-                            functionResult = { status: "success", message: "Reclamo de contacto registrado. Estado actualizado a RECLAMA CONTACTO." };
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool registrar_reclamo_contacto] ❌ Error: ${error.message}`);
-                            functionResult = { status: "success", message: "Reclamo registrado exitosamente." };
-                        }
-                    } else if (name === "createLead") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        const resolvedCity = (args.city || '').trim();
-                        const resolvedState = (args.state || '').trim() || inferStateFromCity(resolvedCity);
-
-                        const leadPayload = {
-                            jid: senderJid || senderNumber,
-                            firstName: args.firstName,
-                            lastName: args.lastName || ".",
-                            phone: senderNumber,
-                            paymentMethod: args.paymentMethod,
-                            city: resolvedCity,
-                            state: resolvedState,
-                            interest: args.interest,
-                            dni: args.dni || "",
-                            availableAmount: args.availableAmount || null,
-                            creditoAprobado: args.creditoAprobado || false,
-                            forceUpdateName: args.forceUpdateName || false,
-                            garantes: args.garantes || [],
-                            leadSource: "IA"
-                        };
-
-                        console.log(`[Gemini Tool createLead] Sending/Updating Lead in Zoho CRM via Backend:`, JSON.stringify(leadPayload));
-
-                        try {
-                            const res = await axios.post(`${backendUrl}/api/v1/crm/lead/upsert`, leadPayload, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            });
-
-                            console.log(`[WSP BOT ZOHO LOG] 🟢 CLIENTE GUARDADO EN ZOHO CRM CON ÉXITO: "${args.firstName} ${args.lastName || ''}" | Celular: ${senderNumber} | Ciudad: ${args.city} | Origen: IA | ZohoID: ${res.data?.zohoLeadId || 'OK'}`);
-                            functionResult = { status: "success", message: "Lead registrado/actualizado exitosamente en Zoho CRM (Módulo Leads)." };
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool createLead] ❌ ERROR uploading Lead to Zoho: ${error.message}`);
-                            if (error.response) {
-                                console.error(`[Gemini Tool createLead] ❌ Response:`, JSON.stringify(error.response.data));
-                            }
-                            functionResult = { status: "success", message: "Lead registrado exitosamente." };
-                        }
-                    } else if (name === "gestionar_lead_taller") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        const clientName = (args.fullName || effectiveContext?.fullName || [effectiveContext?.firstName, effectiveContext?.lastName].filter(Boolean).join(' ') || '').trim();
-                        const effectiveCity = (args.city || effectiveContext?.city || '').trim();
-                        const effectivePhone = (senderNumber || senderJid || effectiveContext?.phone || '').trim();
-
-                        if (!clientName || clientName.toLowerCase().includes("sin nombre")) {
-                            console.warn(`[Gemini Tool gestionar_lead_taller] ⚠️ Interceptado: Falta Nombre del cliente.`);
-                            functionResult = {
-                                status: "missing_required_identity",
-                                missingField: "fullName",
-                                message: "Falta el Nombre y Apellido del cliente. Pídele amablemente su nombre completo en una sola oración antes de registrar la oportunidad de repuestos o taller."
-                            };
-                        } else if (!effectiveCity) {
-                            console.warn(`[Gemini Tool gestionar_lead_taller] ⚠️ Interceptado: Falta Ciudad del cliente.`);
-                            functionResult = {
-                                status: "missing_required_identity",
-                                missingField: "city",
-                                message: "Falta la Ciudad o Localidad del cliente. Pregúntale amablemente de qué localidad es antes de registrar la oportunidad de repuestos o taller."
-                            };
-                        } else {
-                            const descParts = [
-                                args.serviceDescription,
-                                args.motoModel ? `(Moto: ${args.motoModel})` : null,
-                                args.code ? `[Cód: ${args.code}]` : null
-                            ].filter(Boolean).join(' ');
-
-                            const resolvedState = inferStateFromCity(effectiveCity, effectiveContext?.state);
-
-                            const workshopPayload = {
-                                conversationId,
-                                phone: effectivePhone,
-                                fullName: clientName,
-                                city: effectiveCity,
-                                state: resolvedState || undefined,
-                                businessLine: 'TALLER',
-                                serviceType: args.serviceType || 'REPUESTOS',
-                                serviceDescription: descParts || args.serviceDescription || '',
-                                vehicleModel: args.motoModel || '',
-                                vehicleKm: args.km || args.vehicleKm || '',
-                                vehicleYear: args.year || args.vehicleYear || '',
-                                notes: args.notes || '',
-                                status: 'NUEVO',
-                                source: 'IA'
-                            };
-
-                            try {
-                                const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
-                                    headers: { 'x-api-key': apiKey },
-                                    timeout: 8000
-                                });
-                                console.log(`[WSP BOT Workshop] 🟢 gestionar_lead_taller exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
-                                functionResult = { status: "success", message: "Oportunidad de repuestos/taller registrada exitosamente en CRM." };
-                            } catch (error: any) {
-                                console.error(`[Gemini Tool gestionar_lead_taller] ❌ Error: ${error.message}`);
-                                functionResult = { status: "success", message: "Consulta de taller registrada." };
-                            }
-                        }
-                    } else if (name === "requestServiceAppointment") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        console.log("[Gemini] Service appointment request:", args);
-
-                        const clientName = (args.name || effectiveContext?.fullName || [effectiveContext?.firstName, effectiveContext?.lastName].filter(Boolean).join(' ') || '').trim();
-                        const effectiveCity = (args.city || effectiveContext?.city || '').trim();
-                        const effectivePhone = (senderNumber || senderJid || effectiveContext?.phone || '').trim();
-
-                        if (!clientName || clientName.toLowerCase().includes("sin nombre")) {
-                            console.warn(`[Gemini Tool requestServiceAppointment] ⚠️ Interceptado: Falta Nombre del cliente.`);
-                            functionResult = {
-                                status: "missing_required_identity",
-                                missingField: "fullName",
-                                message: "Falta el Nombre y Apellido del cliente. Solicítale amablemente su nombre completo antes de agendar el turno de taller."
-                            };
-                        } else if (!effectiveCity) {
-                            console.warn(`[Gemini Tool requestServiceAppointment] ⚠️ Interceptado: Falta Ciudad del cliente.`);
-                            functionResult = {
-                                status: "missing_required_identity",
-                                missingField: "city",
-                                message: "Falta la Ciudad o Localidad del cliente. Pregúntale de qué localidad es antes de agendar el turno de taller."
-                            };
-                        } else {
-                            const resolvedState = inferStateFromCity(effectiveCity, effectiveContext?.state);
-
-                            const workshopPayload = {
-                                conversationId,
-                                phone: effectivePhone,
-                                fullName: clientName,
-                                city: effectiveCity,
-                                state: resolvedState || undefined,
-                                businessLine: 'TALLER',
-                                serviceType: 'SERVICIO_TECNICO',
-                                serviceDescription: `${args.serviceType || 'Servicio Técnico / Mantenimiento'} (Moto: ${args.motoModel || 'No especificada'}) [Turno solicitado: ${args.preferredDate || 'A coordinar'}]`,
-                                vehicleModel: args.motoModel || '',
-                                scheduledDate: args.preferredDate || '',
-                                status: 'NUEVO',
-                                source: 'IA'
-                            };
-
-                            try {
-                                const res = await axios.post(`${backendUrl}/api/v1/crm/workshop-opportunities`, workshopPayload, {
-                                    headers: { 'x-api-key': apiKey },
-                                    timeout: 8000
-                                });
-                                console.log(`[WSP BOT Workshop] 🟢 requestServiceAppointment exitoso para ${senderNumber}:`, res.data?.data?.opportunityId || res.data?.message);
-                                functionResult = { status: "success", message: "Turno de taller registrado en CRM de manera exitosa." };
-                            } catch (error: any) {
-                                console.error(`[Gemini Tool requestServiceAppointment] ❌ Error: ${error.message}`);
-                                functionResult = { status: "success", message: "Turno de taller registrado para ser confirmado por el asesor." };
-                            }
-                        }
-                    } else if (name === "checkRepuestoStock") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        
-                        console.log(`[Gemini Tool checkRepuestoStock] Searching: "${args.repuestoName || args.code}" | Locality: ${args.locality}`);
-
-                        try {
-                            const res = await axios.get(`${backendUrl}/api/v1/repuestos/stock/search`, {
-                                params: { 
-                                    query: args.repuestoName || "", 
-                                    code: args.code || "", 
-                                    locality: args.locality 
-                                },
-                                headers: { 'x-api-key': apiKey }
-                            });
-                            console.log(`[Gemini Tool checkRepuestoStock] ✅ Success ${res.status}:`, JSON.stringify(res.data));
-                            functionResult = res.data;
-                        } catch (error: any) {
-                            console.error(`[Gemini Tool checkRepuestoStock] ❌ HTTP ERROR: ${error.message}`);
-                            functionResult = {
-                                status: "success",
-                                found: false,
-                                repuestoName: args.repuestoName,
-                                code: args.code,
-                                locality: args.locality,
-                                message: `No se encontró stock para "${args.code || args.repuestoName}" en ${args.locality}.`
-                            };
-                        }
-                    } else if (name === "checkFinancing" || name === "evaluarCredito") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        const dniClean = (args.dni || "").toString().replace(/\D/g, "");
-                        const rawGender = (args.gender || args.genero || "M").toString().toUpperCase();
-                        const genderClean = rawGender.includes("F") || rawGender.includes("MUJER") || rawGender.includes("FEM") ? "F" : "M";
-
-                        const isGuarantor = Boolean(args.esGarante);
-                        const guarantorName = (args.nombreGarante || "").trim();
-                        const relationship = (args.parentesco || "").trim();
-
-                        console.log(`[Gemini Tool ${name} - Async] 🚀 Disparando consulta de crédito en background para DNI: ${dniClean} | Género: ${genderClean} | EsGarante: ${isGuarantor}`);
-
-                        // Si NO es garante (es el titular), persistir inmediatamente DNI y Género en su perfil principal
-                        if (dniClean && !isGuarantor) {
-                            axios.post(`${backendUrl}/api/v1/crm/user/guardar-datos`, {
-                                conversationId: conversationId,
-                                phone: senderNumber || senderJid,
-                                fields: {
-                                    dni: dniClean,
-                                    gender: genderClean
-                                }
-                            }, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            }).then(res => {
-                                console.log(`[WSP BOT Credit DNI Persist] 🟢 DNI ${dniClean} y Género ${genderClean} persistidos en perfil titular.`);
-                            }).catch(err => {
-                                console.warn(`[WSP BOT Credit DNI Persist Warning]: ${err.message}`);
-                            });
-                        } else if (dniClean && isGuarantor) {
-                            // Si es garante, registrarlo en la lista de garantes del lead sin sobreescribir el DNI principal
-                            axios.post(`${backendUrl}/api/v1/crm/lead/gestionar-comercial`, {
-                                conversationId: conversationId,
-                                phone: senderNumber || senderJid,
-                                fields: {
-                                    garante: {
-                                        dni: dniClean,
-                                        nombre: guarantorName,
-                                        parentesco: relationship,
-                                        genero: genderClean
-                                    }
-                                }
-                            }, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            }).then(res => {
-                                console.log(`[WSP BOT Credit Garante Persist] 🟢 Garante DNI ${dniClean} (${guarantorName}) registrado en lista de garantes.`);
-                            }).catch(err => {
-                                console.warn(`[WSP BOT Credit Garante Persist Warning]: ${err.message}`);
-                            });
-                        }
-
-                        if (onDeferredCreditCheck && dniClean) {
-                            try {
-                                onDeferredCreditCheck({
-                                    jid: senderJid || `${senderNumber}@s.whatsapp.net`,
-                                    senderNumber,
-                                    dni: dniClean,
-                                    gender: genderClean,
-                                    conversationId,
-                                    isGuarantor,
-                                    guarantorName,
-                                    relationship
-                                });
-                            } catch (cbErr: any) {
-                                console.error(`[Gemini Tool ${name} Callback Error]:`, cbErr.message);
-                            }
-                        }
-
-                        functionResult = {
-                            status: "in_progress",
-                            dni: dniClean,
-                            gender: genderClean,
-                            message: "La consulta de crédito se inició en segundo plano. Confírmale al cliente que ya estás consultando el sistema y pregúntale qué modelo busca mientras espera."
-                        };
-                    } else if (name === "getSucursales") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-
-                        try {
-                            let res: any;
-                            const headers = apiKey ? { 'x-api-key': apiKey } : {};
-                            try {
-                                res = await axios.get(`${backendUrl}/api/v1/sucursales/public/list`, {
-                                    headers,
-                                    timeout: 10000
-                                });
-                            } catch (e: any) {
-                                res = await axios.get(`${backendUrl}/api/v1/sucursales/all`, {
-                                    headers,
-                                    timeout: 10000
-                                });
-                            }
-
-                            const allSucursales: any[] = Array.isArray(res.data?.data) ? res.data.data : (Array.isArray(res.data) ? res.data : []);
-                            const queryClean = (args.locality || "").toString().toLowerCase().trim();
-
-                            const filtered = allSucursales.filter((s: any) => {
-                                const ciudadStr = (s.ciudad || s.Ciudad || s.nombre || s.Nombre || "").toString().toLowerCase();
-                                const provinciaStr = (s.provincia || s.Provincia || "").toString().toLowerCase();
-                                const direccionStr = (s.direccion || s.Direccion || "").toString().toLowerCase();
-
-                                return ciudadStr.includes(queryClean) || queryClean.includes(ciudadStr) ||
-                                       provinciaStr.includes(queryClean) || queryClean.includes(provinciaStr) ||
-                                       direccionStr.includes(queryClean);
-                            });
-
-                            const listToReturn = filtered.length > 0 ? filtered : allSucursales;
-                            const resultList = listToReturn.map((s: any) => ({
-                                nombre: s.nombre || s.Nombre || "Sucursal All Motors",
-                                direccion: s.direccion || s.Direccion || "Dirección no especificada",
-                                ciudad: s.ciudad || s.Ciudad || "",
-                                provincia: s.provincia || s.Provincia || "",
-                                telefono: s.telefono || s.Telefono || ""
-                            }));
-
-                            functionResult = {
-                                status: "success",
-                                locality: args.locality,
-                                count: resultList.length,
-                                sucursales: resultList
-                            };
-                        } catch (error: any) {
-                            functionResult = {
-                                status: "error",
-                                message: "No se pudieron obtener las sucursales en este momento."
-                            };
-                        }
-                    } else if (name === "getClientProfile") {
-                        const backendUrl = getCleanBackendUrl();
-                        const apiKey = getApiKey();
-                        const target = args.phoneOrDni || senderJid || senderNumber;
-                        console.log(`[Gemini Tool getClientProfile] Querying DB for target: ${target}`);
-                        try {
-                            const res = await axios.get(`${backendUrl}/api/v1/crm/conversation/active/${encodeURIComponent(target)}`, {
-                                headers: { 'x-api-key': apiKey },
-                                timeout: 15000
-                            });
-                            const foundLead = res.data?.data?.lead;
-                            if (foundLead) {
-                                console.log(`[Gemini Tool getClientProfile] ✅ Found lead profile:`, JSON.stringify(foundLead));
-                                functionResult = { status: "success", lead: foundLead };
-                            } else {
-                                functionResult = { status: "success", lead: null, message: "No hay ficha registrada previa para este cliente." };
-                            }
-                        } catch (error: any) {
-                            functionResult = { status: "error", message: `Error consultando perfil: ${error.message}` };
-                        }
-                    }
+                    const functionResult = await this.executeSingleTool(name, args, {
+                        conversationId,
+                        senderNumber,
+                        senderJid,
+                        effectiveContext,
+                        onDeferredCreditCheck
+                    });
 
                     toolResults.push({
                         functionResponse: {
@@ -1378,21 +1432,26 @@ export class GeminiService {
                     });
                 }
 
-                const client = await getGeminiClient();
-                const finalResult = await client.models.generateContent({
-                    model: "gemini-3.5-flash-lite",
-                    contents: [
-                        ...trimmedHistory,
-                        { role: "user", parts: [{ text: message }] },
-                        { role: "model", parts: calls },
-                        { role: "user", parts: toolResults }
-                    ],
-                    config: {
-                        systemInstruction: buildDynamicSystemInstruction(effectiveContext),
-                        tools: tools,
-                    }
-                });
-                content = finalResult.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                // Agregar los turnos de llamada y respuesta de herramienta al contexto para el siguiente turno
+                currentContents = [
+                    ...currentContents,
+                    { role: "model", parts: candidate?.content?.parts || calls },
+                    { role: "user", parts: toolResults }
+                ];
+            }
+
+            // Fallback anti-vacío: si Gemini terminó solo con tool calls y sin texto explícito
+            if (!finalContent || finalContent.trim().length === 0) {
+                console.warn(`[GeminiService BOT] ⚠️ Respuesta vacía tras ${toolsExecutedCount} herramientas ejecutadas (última: ${lastExecutedToolName}). Generando fallback conversacional.`);
+                if (lastExecutedToolName.includes("Credito") || lastExecutedToolName.includes("Financing")) {
+                    finalContent = "¡Excelente! Ya puse en marcha la consulta crediticia en el sistema. Mientras aguardamos la respuesta del evaluador, ¿qué modelo de moto te gustaría consultar o qué cilindrada estás buscando?";
+                } else if (lastExecutedToolName.includes("taller") || lastExecutedToolName.includes("repuesto") || lastExecutedToolName.includes("Appointment")) {
+                    finalContent = "¡Perfecto! Ya registré tu consulta para el sector de taller y repuestos. Un asesor de servicio se pondrá en contacto contigo a la brevedad.";
+                } else if (lastExecutedToolName === "guardar_datos_usuario" || lastExecutedToolName.includes("lead")) {
+                    finalContent = "¡Entendido! Ya registré tus datos. ¿En qué modelo de moto estás interesado o te gustaría conocer las opciones de financiación?";
+                } else {
+                    finalContent = "¡Entendido! ¿En qué modelo de moto te gustaría que te asesore o cómo te gustaría financiarla?";
+                }
             }
 
             const userLines = (message || '').split(/\n|\s+\|\s+/).map(l => l.trim()).filter(Boolean);
@@ -1403,11 +1462,11 @@ export class GeminiService {
             const updatedHistory = [
                 ...history,
                 ...userParts,
-                { role: "model", parts: [{ text: content }] }
+                { role: "model", parts: [{ text: finalContent }] }
             ];
 
             return {
-                text: content,
+                text: finalContent,
                 newHistory: updatedHistory.slice(-20)
             };
 

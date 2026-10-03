@@ -519,7 +519,8 @@ class BotWhatsappService {
                 console.error(`[WSP BOT Context Error] ❌ Error general obteniendo contexto para ${senderJid}: ${e.message}`);
             }
 
-            let state = userStates.get(senderJid);
+            const userKey = (senderNumber || senderJid).trim();
+            let state = userStates.get(userKey) || userStates.get(senderJid);
 
             // Hidratar historial desde backend si no existe en RAM
             if (!state || !state.history || state.history.length === 0) {
@@ -542,6 +543,7 @@ class BotWhatsappService {
                     history: loadedHistory,
                     lastActivity: Date.now()
                 };
+                userStates.set(userKey, state);
                 userStates.set(senderJid, state);
             }
 
@@ -587,7 +589,9 @@ class BotWhatsappService {
             const isClosedSession = isGoodbyeSignal(combinedText);
 
             const lastHistoryMsg = history.length > 0 ? history[history.length - 1] : null;
-            const lastBotText = lastHistoryMsg && lastHistoryMsg.role === 'model' ? (lastHistoryMsg.parts?.[0]?.text || '').toLowerCase() : '';
+            const lastBotText = lastHistoryMsg && lastHistoryMsg.role === 'model' 
+                ? (lastHistoryMsg.text || lastHistoryMsg.parts?.[0]?.text || '').toLowerCase() 
+                : '';
 
             // REGLA CRÍTICA ANTI-DUPLICADOS: Si el último mensaje del historial ya fue del bot ('model'),
             // y el texto entrante ya existía previamente en el historial, descartar de inmediato para no repetir respuestas.
@@ -605,7 +609,7 @@ class BotWhatsappService {
                             phone: senderNumber,
                             pushName: msg.pushName || "",
                             conversationId,
-                            replyStatus: isClosedSession ? 'ATENDIDO' : 'PENDIENTE',
+                            replyStatus: 'ATENDIDO',
                             status: isClosedSession ? 'CLOSED' : 'ACTIVE',
                             closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
                             updatedAt: new Date()
@@ -667,6 +671,11 @@ class BotWhatsappService {
                     }
                 );
 
+                userStates.set(userKey, {
+                    step: 'CHATTING',
+                    history: aiResponse.newHistory,
+                    lastActivity: Date.now()
+                });
                 userStates.set(senderJid, {
                     step: 'CHATTING',
                     history: aiResponse.newHistory,
@@ -701,7 +710,8 @@ class BotWhatsappService {
                     }
                     
                     // 4. ÚNICAMENTE TRAS ENVIAR EL MENSAJE CON ÉXITO: Sincronizar respuesta del bot en DB
-                    // REGLA: ATENDIDO = conversaciones cerradas / concluidas. PENDIENTE = conversación en curso activa.
+                    // REGLA CRÍTICA: Tras enviar la respuesta del bot, replyStatus SIEMPRE pasa a 'ATENDIDO'
+                    // para evitar bucles con el cron de recuperación de pendientes.
                     const syncPayload = {
                         jid: senderJid,
                         phone: senderNumber,
@@ -713,7 +723,7 @@ class BotWhatsappService {
                             timestamp: new Date()
                         }],
                         lastMessage: aiResponse.text.trim(),
-                        replyStatus: isClosedSession ? 'ATENDIDO' : 'PENDIENTE',
+                        replyStatus: 'ATENDIDO',
                         status: isClosedSession ? 'CLOSED' : 'ACTIVE',
                         closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
                         updatedAt: new Date()
@@ -922,7 +932,23 @@ class BotWhatsappService {
                         }
 
                         console.log(`[WSP BOT Recovery] 🚀 Procesando y respondiendo mensaje pendiente de ${userKey}: "${lastMsg.text}"`);
-                        await this.processUserMessage(userKey, conv.jid, conv.phone || '', lastMsg.text, { pushName: conv.pushName || '' });
+                        try {
+                            await this.processUserMessage(userKey, conv.jid, conv.phone || '', lastMsg.text, { pushName: conv.pushName || '' });
+                        } finally {
+                            // Garantía anti-bucle: marcar ATENDIDO en DB una vez tomado por el cron de recuperación
+                            try {
+                                await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                                    jid: conv.jid,
+                                    phone: conv.phone,
+                                    conversationId: conv.conversationId,
+                                    replyStatus: 'ATENDIDO',
+                                    updatedAt: new Date()
+                                }, {
+                                    headers: { 'x-api-key': apiKey },
+                                    timeout: 10000
+                                });
+                            } catch (syncErr: any) {}
+                        }
                     }
 
                 }
