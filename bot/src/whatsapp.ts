@@ -51,8 +51,14 @@ class BotWhatsappService {
     public sock: WASocket | null = null;
     private qr: string | null = null;
     private isInitializing = false;
+    private isConnected = false;
+    private isRecovering = false;
     private cronTimer: NodeJS.Timeout | null = null;
     private processingUsers = new Set<string>();
+
+    public isSocketReady(): boolean {
+        return Boolean(this.isConnected && this.sock && this.sock.user && this.sock.user.id);
+    }
 
     async init() {
         if (this.isInitializing) return;
@@ -79,6 +85,7 @@ class BotWhatsappService {
                 }
                 this.sock = null;
             }
+            this.isConnected = false;
 
             const authFolder = process.env.AUTH_DIR || 'auth_info_baileys_bot';
             const authPath = path.resolve(process.cwd(), authFolder);
@@ -117,6 +124,8 @@ class BotWhatsappService {
                     
                     console.log(`[WSP BOT] Connection closed. Status code: ${statusCode}. Error: ${errorMessage}`);
                     this.isInitializing = false;
+                    this.isConnected = false;
+                    this.sock = null;
                     
                     if (statusCode === DisconnectReason.loggedOut) {
                         console.log(`[WSP BOT] Session logged out. Clearing credentials folder (${authPath})...`);
@@ -135,7 +144,8 @@ class BotWhatsappService {
                 } else if (connection === 'open') {
                     this.qr = null;
                     this.isInitializing = false;
-                    console.log(`✓ [WSP BOT] WhatsApp Commercial AI Bot connected successfully!`);
+                    this.isConnected = true;
+                    console.log(`✓ [WSP BOT] WhatsApp Commercial AI Bot connected successfully! (User ID: ${this.sock?.user?.id || 'OK'})`);
                     
                     // 1. Limpiar chats pendientes con más de 2 días ANTES de procesar o recuperar respuestas
                     this.cleanupStalePendingConversations(2).then(() => {
@@ -391,15 +401,26 @@ class BotWhatsappService {
     private startMemoryCleanup() {
         if (this.memoryCleanupTimer) return;
         this.memoryCleanupTimer = setInterval(() => {
-            const ONE_HOUR_MS = 60 * 60 * 1000;
+            const THIRTY_MINS_MS = 30 * 60 * 1000;
             const now = Date.now();
             let purgedStates = 0;
             for (const [key, state] of userStates.entries()) {
-                if (state.lastActivity && (now - state.lastActivity) > ONE_HOUR_MS) {
+                if (!state.lastActivity || (now - state.lastActivity) > THIRTY_MINS_MS) {
                     userStates.delete(key);
                     purgedStates++;
                 }
             }
+            // Límite preventivo de memoria: si aún excede 250 estados, purgar los más antiguos
+            const MAX_STATES = 250;
+            if (userStates.size > MAX_STATES) {
+                const entries = Array.from(userStates.entries()).sort((a, b) => (a[1].lastActivity || 0) - (b[1].lastActivity || 0));
+                const excess = userStates.size - MAX_STATES;
+                for (let i = 0; i < excess; i++) {
+                    userStates.delete(entries[i][0]);
+                    purgedStates++;
+                }
+            }
+
             let purgedQueues = 0;
             for (const [key, q] of userQueues.entries()) {
                 if (!q.messages || q.messages.length === 0) {
@@ -408,9 +429,9 @@ class BotWhatsappService {
                 }
             }
             if (purgedStates > 0 || purgedQueues > 0) {
-                console.log(`[WSP BOT Memory Purge] 🧹 Limpieza de memoria: purgados ${purgedStates} estados y ${purgedQueues} colas inactivas.`);
+                console.log(`[WSP BOT Memory Purge] 🧹 Limpieza de memoria: purgados ${purgedStates} estados y ${purgedQueues} colas inactivas. (Activos en RAM: ${userStates.size})`);
             }
-        }, 15 * 60 * 1000);
+        }, 10 * 60 * 1000);
     }
 
 
@@ -645,6 +666,11 @@ class BotWhatsappService {
             }
 
             // 3. Generar respuesta de Gemini con contexto dinámico
+            if (!this.isSocketReady()) {
+                console.warn(`[WSP BOT Guard] ⚠️ Socket desconectado antes de procesar mensaje de ${senderNumber}. Se pospone respuesta sin llamar a Gemini.`);
+                return;
+            }
+
             let aiResponse: any;
             try {
                 aiResponse = await geminiService.chat(
@@ -691,7 +717,7 @@ class BotWhatsappService {
                     console.log(`[WSP BOT Delay] Espera humana de ${delaySeconds}s antes de enviar respuesta a ${senderNumber}...`);
                     
                     // Activar presencia "Escribiendo..." en WhatsApp
-                    if (this.sock) {
+                    if (this.isSocketReady() && this.sock) {
                         try {
                             await this.sock.sendPresenceUpdate('composing', senderJid);
                         } catch (presErr) {}
@@ -703,7 +729,7 @@ class BotWhatsappService {
                     await this.sendMessage(senderJid, aiResponse.text.trim());
 
                     // Desactivar presencia "Escribiendo..."
-                    if (this.sock) {
+                    if (this.isSocketReady() && this.sock) {
                         try {
                             await this.sock.sendPresenceUpdate('paused', senderJid);
                         } catch (presErr) {}
@@ -739,26 +765,31 @@ class BotWhatsappService {
                 }
 
             } catch (responseErr: any) {
-                console.error(`[WSP BOT Error] Falló el procesamiento o envío de respuesta para ${senderNumber}: ${responseErr.message}. La conversación SE MANTIENE PENDIENTE en DB.`);
+                console.error(`[WSP BOT Error] Falló el procesamiento o envío de respuesta para ${senderNumber}: ${responseErr.message}.`);
                 
-                // Asegurar resiliencia: actualizar estado PENDIENTE en DB
-                try {
-                    await axios.post(syncUrl, {
-                        jid: senderJid,
-                        phone: senderNumber,
-                        pushName: msg.pushName || "",
-                        conversationId,
-                        history: history,
-                        lastMessage: combinedText,
-                        replyStatus: 'PENDIENTE',
-                        status: 'ACTIVE',
-                        updatedAt: new Date()
-                    }, {
-                        headers: { 'x-api-key': apiKey },
-                        timeout: 15000
-                    });
-                } catch (syncErr: any) {
-                    console.error(`[WSP BOT Sync Fallback Error] (${syncUrl}): ${syncErr.message}`);
+                // Si el error fue por socket desconectado, NO re-marcar PENDIENTE para evitar bucles zombis con el cron
+                const isSocketError = /disconnected|unauthenticated|closed|reading 'id'/i.test(responseErr.message || "");
+                if (!isSocketError) {
+                    try {
+                        await axios.post(syncUrl, {
+                            jid: senderJid,
+                            phone: senderNumber,
+                            pushName: msg.pushName || "",
+                            conversationId,
+                            history: history,
+                            lastMessage: combinedText,
+                            replyStatus: 'PENDIENTE',
+                            status: 'ACTIVE',
+                            updatedAt: new Date()
+                        }, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 15000
+                        });
+                    } catch (syncErr: any) {
+                        console.error(`[WSP BOT Sync Fallback Error] (${syncUrl}): ${syncErr.message}`);
+                    }
+                } else {
+                    console.warn(`[WSP BOT Guard] 🛡️ Falla por socket desconectado para ${senderNumber}. No se cicla en DB.`);
                 }
             }
 
@@ -859,6 +890,17 @@ class BotWhatsappService {
     }
 
     public async recoverPendingConversations(): Promise<void> {
+        if (!this.isSocketReady()) {
+            console.log(`[WSP BOT Recovery] ⏭️ Socket no conectado. Omitiendo recuperación de mensajes pendientes.`);
+            return;
+        }
+
+        if (this.isRecovering) {
+            console.log(`[WSP BOT Recovery] ⏳ Ya existe un ciclo de recuperación ejecutándose en segundo plano. Omitiendo pasada.`);
+            return;
+        }
+
+        this.isRecovering = true;
         const backendUrl = this.getCleanBackendUrl();
         const apiKey = getApiKey();
         try {
@@ -871,6 +913,11 @@ class BotWhatsappService {
             if (Array.isArray(list) && list.length > 0) {
                 console.log(`[WSP BOT Recovery] Se encontraron ${list.length} conversación(es) pendiente(s) de respuesta. Procesando...`);
                 for (const conv of list) {
+                    if (!this.isSocketReady()) {
+                        console.warn(`[WSP BOT Recovery] ⚠️ Socket desconectado durante la recuperación. Abortando lote pendiente.`);
+                        break;
+                    }
+
                     if (this.processingUsers.has(conv.jid) || (conv.phone && this.processingUsers.has(conv.phone))) {
                         console.log(`[WSP BOT Recovery] Omitiendo ${conv.phone || conv.jid} porque ya cuenta con una respuesta en proceso en memoria.`);
                         continue;
@@ -950,13 +997,14 @@ class BotWhatsappService {
                             } catch (syncErr: any) {}
                         }
                     }
-
                 }
             } else {
-                console.log(`[WSP BOT Recovery] No hay conversaciones pendientes de respuesta.`);
+                console.log(`[WSP BOT Recovery] 🟢 No hay mensajes pendientes.`);
             }
         } catch (err: any) {
-            console.warn(`[WSP BOT Recovery Warning] ${err.message}`);
+            console.warn(`[WSP BOT Recovery Error] Error consultando pendientes: ${err.message}`);
+        } finally {
+            this.isRecovering = false;
         }
     }
 
@@ -1009,6 +1057,11 @@ class BotWhatsappService {
             const userKey = (senderNumber || jid).trim();
 
             const sendAndSync = async () => {
+                if (!this.isSocketReady()) {
+                    console.warn(`[WSP BOT Credit Background] ⚠️ Socket no conectado o no autenticado. Omitiendo envío proactivo para ${jid}`);
+                    return;
+                }
+
                 // Activar presencia humana de escritura (2 a 3 segundos)
                 if (this.sock) {
                     try {
@@ -1116,9 +1169,9 @@ class BotWhatsappService {
     }
 
     async sendMessage(target: string, message: string, retryCount = 0): Promise<void> {
-        if (!this.sock) {
-            console.error('[WSP BOT] Socket not initialized.');
-            throw new Error('WhatsApp socket not initialized');
+        if (!this.isSocketReady()) {
+            console.error('[WSP BOT] Socket no conectado o no autenticado.');
+            throw new Error('WhatsApp socket disconnected or unauthenticated');
         }
         
         let jid = target.trim();
@@ -1129,10 +1182,10 @@ class BotWhatsappService {
         }
 
         try {
-            await this.sock.sendMessage(jid, { text: message });
+            await this.sock!.sendMessage(jid, { text: message });
             console.log(`[WSP BOT] Message sent to ${jid}`);
         } catch (error: any) {
-            if (retryCount < 2) {
+            if (retryCount < 2 && this.isSocketReady()) {
                 await new Promise(resolve => setTimeout(resolve, 3000));
                 return this.sendMessage(target, message, retryCount + 1);
             }

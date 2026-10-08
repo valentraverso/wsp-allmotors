@@ -23,6 +23,11 @@ class InternalWhatsappService {
     public sock: WASocket | null = null;
     private qr: string | null = null;
     private isInitializing = false;
+    private isConnected = false;
+
+    public isSocketReady(): boolean {
+        return Boolean(this.isConnected && this.sock && this.sock.user && this.sock.user.id);
+    }
 
     async init() {
         if (this.isInitializing) return;
@@ -91,6 +96,8 @@ class InternalWhatsappService {
                     
                     console.log(`[WSP INTERNAL] Connection closed. Status code: ${statusCode}. Error: ${errorMessage}`);
                     this.isInitializing = false;
+                    this.isConnected = false;
+                    this.sock = null;
                     
                     if (statusCode === DisconnectReason.loggedOut) {
                         console.log(`[WSP INTERNAL] Session logged out. Clearing credentials folder (${authPath})...`);
@@ -109,7 +116,8 @@ class InternalWhatsappService {
                 } else if (connection === 'open') {
                     this.qr = null;
                     this.isInitializing = false;
-                    console.log(`✓ [WSP INTERNAL] WhatsApp Internal Notification Service connected!`);
+                    this.isConnected = true;
+                    console.log(`✓ [WSP INTERNAL] WhatsApp Internal Notification Service connected! (User ID: ${this.sock?.user?.id || 'OK'})`);
                 }
             });
 
@@ -120,14 +128,16 @@ class InternalWhatsappService {
         } catch (error) {
             console.error('[WSP INTERNAL] Error during WhatsApp init:', error);
             this.isInitializing = false;
+            this.isConnected = false;
+            this.sock = null;
             setTimeout(() => this.init(), 10000);
         }
     }
 
     async sendMessage(target: string, message: string, retryCount = 0): Promise<void> {
-        if (!this.sock) {
-            console.error('[WSP INTERNAL] Socket not initialized. Cannot send notification.');
-            throw new Error('WhatsApp socket not initialized');
+        if (!this.isSocketReady()) {
+            console.error('[WSP INTERNAL] Socket not connected or unauthenticated. Cannot send notification.');
+            throw new Error('WhatsApp socket disconnected or unauthenticated');
         }
         
         let jid = target.trim();
@@ -151,12 +161,12 @@ class InternalWhatsappService {
             }
 
             try {
-                const results = await this.sock.onWhatsApp(cleanNumber);
+                const results = await this.sock!.onWhatsApp(cleanNumber);
                 if (results && results.length > 0 && results[0]?.exists && results[0]?.jid) {
                     jid = results[0].jid;
                 } else {
                     const altNumber = cleanNumber.startsWith('549') ? '54' + cleanNumber.substring(3) : cleanNumber;
-                    const altResults = await this.sock.onWhatsApp(altNumber);
+                    const altResults = await this.sock!.onWhatsApp(altNumber);
                     if (altResults && altResults.length > 0 && altResults[0]?.exists && altResults[0]?.jid) {
                         jid = altResults[0].jid;
                     } else {
@@ -170,7 +180,7 @@ class InternalWhatsappService {
 
         try {
             console.log(`[WSP INTERNAL] Sending system notification to ${jid}...`);
-            await this.sock.sendMessage(jid, { text: message });
+            await this.sock!.sendMessage(jid, { text: message });
             console.log(`[WSP INTERNAL] Notification successfully sent to ${jid}`);
         } catch (error: any) {
             if (retryCount < 2) {
@@ -182,9 +192,9 @@ class InternalWhatsappService {
     }
 
     async sendDocument(target: string, documentBuffer: Buffer, fileName: string, mimetype: string = 'application/pdf', retryCount = 0): Promise<void> {
-        if (!this.sock) {
-            console.error('[WSP INTERNAL] Socket not initialized. Cannot send document.');
-            throw new Error('WhatsApp socket not initialized');
+        if (!this.isSocketReady()) {
+            console.error('[WSP INTERNAL] Socket not connected or unauthenticated. Cannot send document.');
+            throw new Error('WhatsApp socket disconnected or unauthenticated');
         }
         
         let jid = target.trim();
@@ -208,12 +218,12 @@ class InternalWhatsappService {
             }
 
             try {
-                const results = await this.sock.onWhatsApp(cleanNumber);
+                const results = await this.sock!.onWhatsApp(cleanNumber);
                 if (results && results.length > 0 && results[0]?.exists && results[0]?.jid) {
                     jid = results[0].jid;
                 } else {
                     const altNumber = cleanNumber.startsWith('549') ? '54' + cleanNumber.substring(3) : cleanNumber;
-                    const altResults = await this.sock.onWhatsApp(altNumber);
+                    const altResults = await this.sock!.onWhatsApp(altNumber);
                     if (altResults && altResults.length > 0 && altResults[0]?.exists && altResults[0]?.jid) {
                         jid = altResults[0].jid;
                     } else {
@@ -227,7 +237,7 @@ class InternalWhatsappService {
 
         try {
             console.log(`[WSP INTERNAL] Sending document (${fileName}) to ${jid}...`);
-            await this.sock.sendMessage(jid, {
+            await this.sock!.sendMessage(jid, {
                 document: documentBuffer,
                 fileName: fileName,
                 mimetype: mimetype || 'application/pdf'
