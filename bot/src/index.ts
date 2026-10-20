@@ -92,6 +92,7 @@ app.get('/status', (req, res) => {
 
 import geminiService from './services/gemini';
 import axios from 'axios';
+import { getBackendApiKey, getCleanBackendUrl } from './agent/config/env';
 
 // Endpoint para desvincular/logout de WhatsApp Commercial Bot
 app.post('/logout', authMiddleware, async (req, res) => {
@@ -103,27 +104,32 @@ app.post('/logout', authMiddleware, async (req, res) => {
     }
 });
 
-// Endpoint para procesar mensajes de canales omnicanal (Instagram Direct y Facebook Messenger)
-app.post('/api/v1/bot/chat', async (req, res) => {
+// Endpoint protegido para procesar mensajes de canales omnicanal (WhatsApp Cloud API, Instagram Direct y Facebook Messenger)
+app.post('/api/v1/bot/chat', authMiddleware, async (req, res) => {
     try {
-        const { conversationId, channel, senderId, text } = req.body;
-        if (!conversationId || !text) {
-            return res.status(400).json({ error: 'conversationId y text son requeridos' });
+        const { conversationId, channel, senderId, text, mediaData } = req.body;
+        if (!conversationId || typeof conversationId !== 'string' || (!text && !mediaData)) {
+            return res.status(400).json({ error: 'conversationId y text (o mediaData) son requeridos y deben ser válidos' });
         }
 
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:4000';
-        const apiKey = process.env.BACKEND_API_KEY || process.env.SYSTEM_ADMIN_API_KEY || '';
+        const resolvedChannel = (channel || 'WHATSAPP').toUpperCase();
+        const senderJid = `${resolvedChannel.toLowerCase()}:${senderId}`;
+        const cleanSenderPhone = resolvedChannel === 'WHATSAPP' ? String(senderId || '').replace(/\D/g, '') : '';
 
-        // 1. Obtener contexto del cliente desde backend si existe
+        const backendUrl = getCleanBackendUrl();
+        const apiKey = getBackendApiKey();
+
+        // 1. Obtener contexto del cliente desde backend (con fallback por teléfono para vincular leads y consultas previas)
         let clientContext: any = null;
         try {
-            const contextRes = await axios.get(`${backendUrl}/api/v1/crm/conversation/resolve-context/${conversationId}`, {
+            const contextUrl = `${backendUrl}/api/v1/crm/conversation/resolve-context/${encodeURIComponent(conversationId)}${cleanSenderPhone ? `?phone=${encodeURIComponent(cleanSenderPhone)}` : ''}`;
+            const contextRes = await axios.get(contextUrl, {
                 headers: { 'x-api-key': apiKey },
                 timeout: 10000
             });
-            clientContext = contextRes.data?.data || null;
-        } catch (e) {
-            // No bloqueante
+            clientContext = contextRes.data?.data?.clientContext || contextRes.data?.data || null;
+        } catch (e: any) {
+            console.error(`[WSP BOT Chat Context Error]: ${e.message}`);
         }
 
         // 2. Obtener historial previo de la conversación desde backend
@@ -133,28 +139,71 @@ app.post('/api/v1/bot/chat', async (req, res) => {
                 headers: { 'x-api-key': apiKey },
                 timeout: 10000
             });
-            const rawMsgs = chatRes.data?.data?.messages || chatRes.data?.data?.conversation?.messages || [];
-            if (Array.isArray(rawMsgs)) {
-                history = rawMsgs.map((m: any) => ({
-                    role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: m.text || '' }]
-                })).filter((h: any) => h.parts[0].text);
+            const rawMsgs = chatRes.data?.data?.messages || chatRes.data?.data?.history || chatRes.data?.data?.conversation?.messages || [];
+            if (Array.isArray(rawMsgs) && rawMsgs.length > 0) {
+                history = rawMsgs.map((m: any) => {
+                    const textVal = m.text || m.parts?.[0]?.text || (typeof m.content === 'string' ? m.content : '');
+                    return {
+                        role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
+                        text: textVal,
+                        parts: [{ text: textVal }]
+                    };
+                }).filter((h: any) => h.text);
+            }
+
+            // Si la conversación tiene <= 1 mensaje pero tenemos teléfono, cargar historial previo por teléfono para dar continuidad
+            if (history.length <= 1 && cleanSenderPhone) {
+                try {
+                    const phoneChatRes = await axios.get(`${backendUrl}/api/v1/crm/chats/${encodeURIComponent(cleanSenderPhone)}`, {
+                        headers: { 'x-api-key': apiKey },
+                        timeout: 10000
+                    });
+                    const phoneMsgs = phoneChatRes.data?.data?.messages || phoneChatRes.data?.data?.history || [];
+                    if (Array.isArray(phoneMsgs) && phoneMsgs.length > 0) {
+                        const olderHistory = phoneMsgs.map((m: any) => {
+                            const textVal = m.text || m.parts?.[0]?.text || (typeof m.content === 'string' ? m.content : '');
+                            return {
+                                role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
+                                text: textVal,
+                                parts: [{ text: textVal }]
+                            };
+                        }).filter((h: any) => h.text);
+                        if (olderHistory.length > history.length) {
+                            history = olderHistory;
+                        }
+                    }
+                } catch {
+                    // ignore
+                }
             }
         } catch (e) {
             // No bloqueante
         }
 
-        const senderJid = `${(channel || 'META').toLowerCase()}:${senderId}`;
-
-        // 3. Invocar a Manuel Botardo (Gemini)
+        // 3. Invocar a Manuel Botardo (LangChain + Letta Memory + Langfuse) con callback de crédito diferido y soporte multimodal
         const aiResult = await geminiService.chat(
-            text,
+            text || '[Archivo multimedia recibido]',
             history,
-            "",
+            cleanSenderPhone,
             senderJid,
             clientContext,
             conversationId,
-            ""
+            "",
+            (creditData) => {
+                whatsappService.handleDeferredCreditCheck(
+                    creditData.jid,
+                    creditData.senderNumber,
+                    creditData.dni,
+                    creditData.gender,
+                    creditData.conversationId,
+                    creditData.isGuarantor,
+                    creditData.guarantorName,
+                    creditData.relationship
+                ).catch((err: any) => {
+                    console.error(`[WSP BOT Deferred Credit Error]: ${err.message}`);
+                });
+            },
+            mediaData
         );
 
         res.status(200).json({

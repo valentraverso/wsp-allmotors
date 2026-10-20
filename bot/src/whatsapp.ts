@@ -551,12 +551,43 @@ class BotWhatsappService {
                         headers: { 'x-api-key': apiKey },
                         timeout: 15000
                     });
-                    if (chatRes.data && Array.isArray(chatRes.data.history)) {
-                        loadedHistory = chatRes.data.history;
+                    const rawHistory = chatRes.data?.data?.history || chatRes.data?.data?.messages || chatRes.data?.history || chatRes.data?.messages || [];
+                    if (Array.isArray(rawHistory) && rawHistory.length > 0) {
+                        loadedHistory = rawHistory.map((m: any) => {
+                            const textVal = m.text || m.parts?.[0]?.text || (typeof m.content === 'string' ? m.content : '');
+                            return {
+                                role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
+                                text: textVal,
+                                parts: [{ text: textVal }]
+                            };
+                        }).filter((h: any) => h.text);
                         console.log(`[WSP BOT History] Hidratado historial previo de ${loadedHistory.length} mensajes desde DB para ${senderNumber}`);
                     }
                 } catch (e) {
                     // ignore
+                }
+
+                if (loadedHistory.length === 0 && senderNumber) {
+                    try {
+                        const numRes = await axios.get(`${backendUrl}/api/v1/crm/chats/${encodeURIComponent(senderNumber)}`, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 15000
+                        });
+                        const rawNumHistory = numRes.data?.data?.history || numRes.data?.data?.messages || numRes.data?.history || [];
+                        if (Array.isArray(rawNumHistory) && rawNumHistory.length > 0) {
+                            loadedHistory = rawNumHistory.map((m: any) => {
+                                const textVal = m.text || m.parts?.[0]?.text || (typeof m.content === 'string' ? m.content : '');
+                                return {
+                                    role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
+                                    text: textVal,
+                                    parts: [{ text: textVal }]
+                                };
+                            }).filter((h: any) => h.text);
+                            console.log(`[WSP BOT History] Hidratado historial previo por número de ${loadedHistory.length} mensajes desde DB para ${senderNumber}`);
+                        }
+                    } catch {
+                        // ignore
+                    }
                 }
 
                 state = {
@@ -1057,47 +1088,72 @@ class BotWhatsappService {
             const userKey = (senderNumber || jid).trim();
 
             const sendAndSync = async () => {
-                if (!this.isSocketReady()) {
-                    console.warn(`[WSP BOT Credit Background] ⚠️ Socket no conectado o no autenticado. Omitiendo envío proactivo para ${jid}`);
-                    return;
-                }
+                const isOmnichannelMeta =
+                    jid.startsWith('whatsapp:') ||
+                    jid.startsWith('instagram:') ||
+                    jid.startsWith('facebook:') ||
+                    jid.startsWith('meta:');
 
-                // Activar presencia humana de escritura (2 a 3 segundos)
-                if (this.sock) {
+                if (isOmnichannelMeta || !this.isSocketReady()) {
+                    // Despachar vía WhatsApp Cloud API / Meta Graph API en blackend_allmotors
+                    const resolvedChannel = jid.startsWith('instagram:')
+                        ? 'INSTAGRAM'
+                        : jid.startsWith('facebook:')
+                        ? 'FACEBOOK'
+                        : 'WHATSAPP';
+                    const cleanTargetSender = jid.replace(/^(whatsapp|instagram|facebook|meta):/i, '') || senderNumber;
                     try {
-                        await this.sock.sendPresenceUpdate('composing', jid);
-                    } catch (e) {}
-                }
-                await new Promise(resolve => setTimeout(resolve, 2500));
+                        await axios.post(`${backendUrl}/api/v1/crm/meta/send-proactive`, {
+                            conversationId,
+                            channel: resolvedChannel,
+                            senderId: cleanTargetSender,
+                            text: proactiveMsg
+                        }, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 15000
+                        });
+                        console.log(`[WSP BOT Credit Background] 🟢 Notificación crediticia diferida enviada vía Meta Cloud API (${resolvedChannel}) a ${cleanTargetSender}`);
+                    } catch (proactiveErr: any) {
+                        console.error(`[WSP BOT Credit Proactive Meta Error]: ${proactiveErr.message}`);
+                    }
+                } else {
+                    // Envío tradicional por socket Baileys si está conectado
+                    if (this.sock) {
+                        try {
+                            await this.sock.sendPresenceUpdate('composing', jid);
+                        } catch (e) {}
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 2500));
 
-                await this.sendMessage(jid, proactiveMsg);
+                    await this.sendMessage(jid, proactiveMsg);
 
-                if (this.sock) {
+                    if (this.sock) {
+                        try {
+                            await this.sock.sendPresenceUpdate('paused', jid);
+                        } catch (e) {}
+                    }
+
+                    // 1. Sincronizar en MongoDB
                     try {
-                        await this.sock.sendPresenceUpdate('paused', jid);
-                    } catch (e) {}
-                }
-
-                // 1. Sincronizar en MongoDB
-                try {
-                    await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
-                        jid: jid,
-                        phone: senderNumber,
-                        conversationId,
-                        replyStatus: 'PENDIENTE',
-                        lastMessage: proactiveMsg,
-                        messages: [{
-                            role: 'model',
-                            text: proactiveMsg,
-                            timestamp: new Date()
-                        }],
-                        updatedAt: new Date()
-                    }, {
-                        headers: { 'x-api-key': apiKey },
-                        timeout: 15000
-                    });
-                } catch (syncErr: any) {
-                    console.error(`[WSP BOT Credit Sync Error]: ${syncErr.message}`);
+                        await axios.post(`${backendUrl}/api/v1/crm/chat/sync`, {
+                            jid: jid,
+                            phone: senderNumber,
+                            conversationId,
+                            replyStatus: 'ATENDIDO',
+                            lastMessage: proactiveMsg,
+                            messages: [{
+                                role: 'model',
+                                text: proactiveMsg,
+                                timestamp: new Date()
+                            }],
+                            updatedAt: new Date()
+                        }, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 15000
+                        });
+                    } catch (syncErr: any) {
+                        console.error(`[WSP BOT Credit Sync Error]: ${syncErr.message}`);
+                    }
                 }
 
                 // 2. Sincronizar en memoria local (userStates)
@@ -1115,7 +1171,7 @@ class BotWhatsappService {
                     if (isGuarantor) {
                         await axios.post(`${backendUrl}/api/v1/crm/lead/gestionar-comercial`, {
                             conversationId,
-                            phone: senderNumber,
+                            phone: senderNumber || jid,
                             fields: {
                                 garante: {
                                     dni,
@@ -1133,7 +1189,7 @@ class BotWhatsappService {
                     } else {
                         await axios.post(`${backendUrl}/api/v1/crm/lead/actualizar-activo`, {
                             conversationId,
-                            phone: senderNumber,
+                            phone: senderNumber || jid,
                             dni,
                             gender,
                             creditoAprobado: isApproved,
