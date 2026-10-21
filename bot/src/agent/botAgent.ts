@@ -39,6 +39,25 @@ function extractTextFromAIMessage(aiMsg: AIMessage): string {
   return "";
 }
 
+export function resolveGeminiModelName(envVal?: string | null, defaultModel = "gemini-3.8-flash"): string {
+  const val = (envVal || "").trim();
+  if (!val) return defaultModel;
+  // Interceptar modelos obsoletos/deprecados por Google que arrojan 404
+  if (
+    val === "gemini-2.5-flash" ||
+    val === "gemini-2.0-flash" ||
+    val === "gemini-1.5-flash" ||
+    val === "gemini-1.5-pro" ||
+    val === "gemini-2.0-flash-exp" ||
+    val === "gemini-2.5-pro" ||
+    val.startsWith("gemini-2.") ||
+    val.startsWith("gemini-1.")
+  ) {
+    return defaultModel;
+  }
+  return val;
+}
+
 export async function runManuelBotardoAgent(params: {
   message: string;
   history: any[];
@@ -135,16 +154,19 @@ export async function runManuelBotardoAgent(params: {
 
   // 5. Inicializar Modelos en Cadena con Fallback (@langchain/google-genai) y Observabilidad (@langfuse/langchain)
   const apiKey = getGeminiApiKey();
+  const primaryModel = resolveGeminiModelName(process.env.GEMINI_PRIMARY_MODEL, "gemini-3.8-flash");
+  const fallbackModel = resolveGeminiModelName(process.env.GEMINI_FALLBACK_MODEL, "gemini-3.5-flash");
+
   const primaryLlm = new ChatGoogleGenerativeAI({
     apiKey,
-    model: process.env.GEMINI_PRIMARY_MODEL || "gemini-2.5-flash",
+    model: primaryModel,
     temperature: 0.2,
     maxRetries: 2
   });
 
   const fallbackLlm = new ChatGoogleGenerativeAI({
     apiKey,
-    model: process.env.GEMINI_FALLBACK_MODEL || "gemini-2.0-flash",
+    model: fallbackModel,
     temperature: 0.2,
     maxRetries: 2
   });
