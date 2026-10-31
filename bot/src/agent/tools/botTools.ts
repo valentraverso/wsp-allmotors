@@ -2,7 +2,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import axios from "axios";
 import { getBackendApiKey, getCleanBackendUrl, inferStateFromCity } from "../config/env";
-import { fetchActivePromotionsForBot } from "../memory/coreMemory";
+import { fetchActivePromotionsForBot, isRealPhone } from "../memory/coreMemory";
 
 export interface IBotToolRuntimeContext {
   conversationId?: string;
@@ -21,6 +21,22 @@ export interface IBotToolRuntimeContext {
   }) => void;
 }
 
+/**
+ * Resuelve el teléfono real del cliente evitando filtrar identificadores JID o IGSID de Meta.
+ */
+function resolveToolPhone(rawArgPhone?: string, senderNumber?: string, effectiveContextPhone?: string): string {
+  if (rawArgPhone && isRealPhone(rawArgPhone)) {
+    return rawArgPhone.replace(/\D/g, "");
+  }
+  if (senderNumber && isRealPhone(senderNumber)) {
+    return senderNumber.replace(/\D/g, "");
+  }
+  if (effectiveContextPhone && isRealPhone(effectiveContextPhone)) {
+    return effectiveContextPhone.replace(/\D/g, "");
+  }
+  return "";
+}
+
 const UsedVehicleZodSchema = z.object({
   brand: z.string().optional().describe("Marca de la moto usada (ej: Honda, Motomel, Gilera, Corven)."),
   model: z.string().optional().describe("Modelo de la moto usada (ej: Wave 110, Blitz 110, Smash 110)."),
@@ -37,6 +53,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
       const apiKey = getBackendApiKey();
       const resolvedCity = (args.city || "").trim() || undefined;
       const resolvedState = (args.state || "").trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
+      const toolPhone = resolveToolPhone(args.phone, senderNumber, effectiveContext?.phone);
 
       // Actualizar effectiveContext en memoria para los siguientes turnos del mismo ciclo
       if (args.fullName) effectiveContext.fullName = args.fullName;
@@ -46,14 +63,16 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
       if (resolvedState) effectiveContext.state = resolvedState;
       if (args.dni) effectiveContext.dni = args.dni;
       if (args.gender) effectiveContext.gender = args.gender;
+      if (toolPhone) effectiveContext.phone = toolPhone;
 
       try {
         const res = await axios.post(
           `${backendUrl}/api/v1/crm/user/guardar-datos`,
           {
             conversationId,
-            phone: senderNumber || senderJid,
+            phone: toolPhone,
             fields: {
+              phone: toolPhone || undefined,
               fullName: args.fullName,
               firstName: args.firstName,
               lastName: args.lastName,
@@ -80,7 +99,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
     {
       name: "guardar_datos_usuario",
       description:
-        "Guarda o actualiza los datos de identidad del cliente (Nombre Completo, Nombre, Apellido, Ciudad, Provincia, DNI, Género) de forma inmediata apenas los mencione en el chat.",
+        "Guarda o actualiza los datos de identidad del cliente (Nombre Completo, Nombre, Apellido, Ciudad, Provincia, DNI, Género, Teléfono/WhatsApp) de forma inmediata apenas los mencione en el chat.",
       schema: z.object({
         fullName: z.string().optional().describe("Nombre completo del cliente proporcionado en el chat."),
         firstName: z.string().optional().describe("Nombre de pila del cliente."),
@@ -88,7 +107,8 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
         city: z.string().optional().describe("Ciudad o localidad de residencia del cliente."),
         state: z.string().optional().describe("Provincia del cliente (Santa Fe, Entre Ríos, Corrientes, etc.)."),
         dni: z.string().optional().describe("Número de DNI del cliente (solo números)."),
-        gender: z.enum(["M", "F"]).optional().describe("Género del cliente (M o F).")
+        gender: z.enum(["M", "F"]).optional().describe("Género del cliente (M o F)."),
+        phone: z.string().optional().describe("Número de teléfono celular o WhatsApp de contacto proporcionado por el cliente en el chat (ej: '3424123456').")
       })
     }
   );
@@ -99,7 +119,9 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
       const apiKey = getBackendApiKey();
       const resolvedCity = (args.city || "").trim() || undefined;
       const resolvedState = (args.state || "").trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
+      const toolPhone = resolveToolPhone(args.phone, senderNumber, effectiveContext?.phone);
 
+      if (toolPhone) effectiveContext.phone = toolPhone;
       if (args.interest) effectiveContext.interest = args.interest;
       if (args.paymentMethod) effectiveContext.paymentMethod = args.paymentMethod;
       if (args.tradeIn !== undefined) effectiveContext.tradeIn = args.tradeIn;
@@ -110,8 +132,9 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
           `${backendUrl}/api/v1/crm/lead/gestionar-comercial`,
           {
             conversationId,
-            phone: senderNumber || senderJid,
+            phone: toolPhone,
             fields: {
+              phone: toolPhone || undefined,
               interest: args.interest,
               paymentMethod: args.paymentMethod,
               tradeIn: args.tradeIn,
@@ -161,6 +184,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
         state: z.string().optional(),
         dni: z.string().optional(),
         gender: z.enum(["M", "F"]).optional(),
+        phone: z.string().optional().describe("Número de teléfono celular o WhatsApp del cliente (ej: '3424123456')."),
         garante: z
           .object({
             dni: z.string().describe("DNI del garante."),
@@ -179,13 +203,15 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
       const apiKey = getBackendApiKey();
       const resolvedCity = (args.city || "").trim() || undefined;
       const resolvedState = (args.state || "").trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
+      const toolPhone = resolveToolPhone(args.phone, senderNumber, effectiveContext?.phone);
+      if (toolPhone) effectiveContext.phone = toolPhone;
 
       try {
         const res = await axios.post(
           `${backendUrl}/api/v1/crm/lead/crear-nuevo`,
           {
             conversationId,
-            phone: senderNumber || senderJid,
+            phone: toolPhone,
             interest: args.interest,
             paymentMethod: args.paymentMethod,
             tradeIn: args.tradeIn,
@@ -225,7 +251,8 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
         notes: z.string().optional(),
         firstName: z.string().optional(),
         lastName: z.string().optional(),
-        dni: z.string().optional()
+        dni: z.string().optional(),
+        phone: z.string().optional().describe("Número de teléfono celular o WhatsApp del cliente (ej: '3424123456').")
       })
     }
   );
@@ -236,13 +263,15 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
       const apiKey = getBackendApiKey();
       const resolvedCity = (args.city || "").trim() || undefined;
       const resolvedState = (args.state || "").trim() || (resolvedCity ? inferStateFromCity(resolvedCity) : undefined);
+      const toolPhone = resolveToolPhone((args as any).phone, senderNumber, effectiveContext?.phone);
+      if (toolPhone) effectiveContext.phone = toolPhone;
 
       try {
         const res = await axios.post(
           `${backendUrl}/api/v1/crm/lead/actualizar-activo`,
           {
             conversationId,
-            phone: senderNumber || senderJid,
+            phone: toolPhone,
             ...args,
             city: resolvedCity,
             state: resolvedState
@@ -273,7 +302,8 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
         interest: z.string().optional(),
         paymentMethod: z.string().optional(),
         tradeIn: z.boolean().optional(),
-        usedVehicle: UsedVehicleZodSchema.optional()
+        usedVehicle: UsedVehicleZodSchema.optional(),
+        phone: z.string().optional().describe("Número de teléfono celular o WhatsApp del cliente.")
       })
     }
   );
@@ -282,12 +312,13 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
     async (args) => {
       const backendUrl = getCleanBackendUrl();
       const apiKey = getBackendApiKey();
+      const toolPhone = resolveToolPhone(undefined, senderNumber, effectiveContext?.phone);
       try {
         await axios.post(
           `${backendUrl}/api/v1/crm/lead/registrar-reclamo`,
           {
             conversationId,
-            phone: senderNumber || senderJid,
+            phone: toolPhone,
             motivo: args.motivo
           },
           {
@@ -319,12 +350,13 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
       const apiKey = getBackendApiKey();
       const resolvedCity = (args.city || "").trim();
       const resolvedState = (args.state || "").trim() || inferStateFromCity(resolvedCity);
+      const toolPhone = resolveToolPhone(undefined, senderNumber, effectiveContext?.phone);
 
       const leadPayload = {
-        jid: senderJid || senderNumber,
+        jid: senderJid || (toolPhone ? `${toolPhone}@s.whatsapp.net` : ""),
         firstName: args.firstName,
         lastName: args.lastName || ".",
-        phone: senderNumber,
+        phone: toolPhone,
         paymentMethod: args.paymentMethod,
         city: resolvedCity,
         state: resolvedState,
@@ -406,6 +438,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
     const isGuarantor = Boolean(args.esGarante);
     const guarantorName = (args.nombreGarante || "").trim();
     const relationship = (args.parentesco || "").trim();
+    const toolPhone = resolveToolPhone(undefined, senderNumber, effectiveContext?.phone);
 
     if (dniClean && !isGuarantor) {
       axios
@@ -413,7 +446,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
           `${backendUrl}/api/v1/crm/user/guardar-datos`,
           {
             conversationId,
-            phone: senderNumber || senderJid,
+            phone: toolPhone,
             fields: { dni: dniClean, gender: genderClean }
           },
           { headers: { "x-api-key": apiKey }, timeout: 15000 }
@@ -425,7 +458,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
           `${backendUrl}/api/v1/crm/lead/gestionar-comercial`,
           {
             conversationId,
-            phone: senderNumber || senderJid,
+            phone: toolPhone,
             fields: {
               garante: {
                 dni: dniClean,
@@ -443,8 +476,8 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
     if (onDeferredCreditCheck && dniClean) {
       try {
         onDeferredCreditCheck({
-          jid: senderJid || `${senderNumber}@s.whatsapp.net`,
-          senderNumber,
+          jid: senderJid || `${toolPhone || senderNumber}@s.whatsapp.net`,
+          senderNumber: toolPhone || (isRealPhone(senderNumber) ? senderNumber : ""),
           dni: dniClean,
           gender: genderClean,
           conversationId,
@@ -501,7 +534,9 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
         ""
       ).trim();
       const effectiveCity = (args.city || effectiveContext?.city || "").trim();
-      const effectivePhone = (senderNumber || senderJid || effectiveContext?.phone || "").trim();
+      const toolPhone = resolveToolPhone(args.phone, senderNumber, effectiveContext?.phone);
+      if (toolPhone) effectiveContext.phone = toolPhone;
+      const effectivePhone = toolPhone;
 
       if (!clientName || clientName.toLowerCase().includes("sin nombre")) {
         return JSON.stringify({
@@ -517,6 +552,14 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
           missingField: "city",
           message:
             "Falta la Ciudad o Localidad del cliente. Pregúntale amablemente de qué localidad es antes de registrar la oportunidad de repuestos o taller."
+        });
+      }
+      if (!effectivePhone) {
+        return JSON.stringify({
+          status: "missing_required_identity",
+          missingField: "phone",
+          message:
+            "Falta el número de WhatsApp de contacto del cliente. Solicítale amablemente su teléfono o celular en una sola oración antes de registrar la oportunidad de repuestos o taller."
         });
       }
 
@@ -568,6 +611,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
         serviceDescription: z.string().describe("Nombre del repuesto o detalle del trabajo"),
         city: z.string().describe("Ciudad o localidad del cliente"),
         fullName: z.string().optional().describe("Nombre completo del cliente si lo mencionó"),
+        phone: z.string().optional().describe("Número de teléfono celular o WhatsApp del cliente."),
         motoModel: z.string().optional().describe("Modelo o cilindrada de la moto"),
         km: z.string().optional().describe("Kilometraje actual de la moto"),
         year: z.string().optional().describe("Año de fabricación de la moto"),
@@ -588,7 +632,9 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
         ""
       ).trim();
       const effectiveCity = (args.city || effectiveContext?.city || "").trim();
-      const effectivePhone = (senderNumber || senderJid || effectiveContext?.phone || "").trim();
+      const toolPhone = resolveToolPhone(args.phone, senderNumber, effectiveContext?.phone);
+      if (toolPhone) effectiveContext.phone = toolPhone;
+      const effectivePhone = toolPhone;
 
       if (!clientName || clientName.toLowerCase().includes("sin nombre")) {
         return JSON.stringify({
@@ -602,6 +648,13 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
           status: "missing_required_identity",
           missingField: "city",
           message: "Falta la Ciudad o Localidad del cliente. Pregúntale de qué localidad es antes de agendar el turno."
+        });
+      }
+      if (!effectivePhone) {
+        return JSON.stringify({
+          status: "missing_required_identity",
+          missingField: "phone",
+          message: "Falta el número de WhatsApp de contacto del cliente. Solicítale amablemente su teléfono o celular antes de agendar el turno."
         });
       }
 
@@ -642,6 +695,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
         motoModel: z.string().describe("Marca y modelo de la moto"),
         serviceType: z.string().optional().describe("Tipo de service o reparación requerida"),
         city: z.string().describe("Ciudad o localidad del cliente"),
+        phone: z.string().optional().describe("Número de teléfono celular o WhatsApp del cliente."),
         preferredDate: z.string().describe("Fecha y hora preferida por el cliente")
       })
     }

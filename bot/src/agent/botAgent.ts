@@ -1,7 +1,7 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage } from "@langchain/core/messages";
 import { getGeminiApiKey } from "./config/env";
-import { hydrateCoreMemory, persistCoreMemoryAsync } from "./memory/coreMemory";
+import { hydrateCoreMemory, isRealPhone, persistCoreMemoryAsync } from "./memory/coreMemory";
 import { buildModularSystemPrompt } from "./prompts/promptBuilder";
 import { buildBotStructuredTools } from "./tools/botTools";
 import { createLangfuseCallbacks } from "./observability/langfuse";
@@ -92,11 +92,12 @@ export async function runManuelBotardoAgent(params: {
   const effectiveContext = clientContext && clientContext.source ? { ...clientContext } : { ...(clientContext || {}) };
 
   // 1. Hidratar Bloques de Memoria Jerárquica (Patrón Letta / MemGPT) + Promociones Activas
+  const validSenderNumber = isRealPhone(senderNumber) ? senderNumber : (isRealPhone(effectiveContext?.phone) ? effectiveContext.phone : "");
   const coreMemory = await hydrateCoreMemory({
     message,
     history,
     clientContext: effectiveContext,
-    senderNumber: senderNumber || senderJid
+    senderNumber: validSenderNumber
   });
 
   // Persistir CoreMemory en MongoDB (no bloqueante)

@@ -156,6 +156,21 @@ export function detectBusinessLine(
 }
 
 /**
+ * Valida si un valor corresponde a un número telefónico real (descartando JIDs e IGSIDs de Meta).
+ */
+export function isRealPhone(phone: any): boolean {
+  if (!phone) return false;
+  const str = String(phone).trim();
+  if (!str) return false;
+  if (/^(instagram|facebook|meta):/i.test(str)) return false;
+  const digits = str.split('@')[0].replace(/\D/g, "");
+  // Los IGSID / PSID de Meta tienen 15 a 17 dígitos (ej: 1786300139270535).
+  // Los números telefónicos reales en Argentina tienen entre 8 y 13 dígitos.
+  if (digits.length < 8 || digits.length > 14) return false;
+  return true;
+}
+
+/**
  * Hidrata los 4 bloques de memoria jerárquica con estado (Patrón Letta / MemGPT) antes de ejecutar el grafo de agente.
  */
 export async function hydrateCoreMemory(params: {
@@ -180,8 +195,9 @@ export async function hydrateCoreMemory(params: {
   const hasCity = Boolean(rawCity);
   const inferredState = inferStateFromCity(rawCity, ctx.state || prevCore.customerIdentity?.state);
 
-  const rawPhone = (ctx.phone || senderNumber || prevCore.customerIdentity?.phone || "").toString().trim();
-  const hasPhone = Boolean(rawPhone);
+  const rawPhoneCandidate = (ctx.phone || senderNumber || prevCore.customerIdentity?.phone || "").toString().trim();
+  const hasPhone = isRealPhone(rawPhoneCandidate);
+  const rawPhone = hasPhone ? rawPhoneCandidate : undefined;
 
   const missingFields: string[] = [];
   if (!hasValidName) missingFields.push("Nombre y Apellido completo");
