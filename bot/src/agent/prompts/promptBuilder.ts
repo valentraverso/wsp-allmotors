@@ -126,7 +126,7 @@ ${!id.fullName ? '   👉 Pregúntale su Nombre y Apellido completo (ej: "Para a
       !id.phone
         ? '   👉 Solicítale su número de WhatsApp de contacto (ej: "¿Me podrías indicar un número de teléfono de contacto?").\n'
         : ""
-    }3. PROHIBIDO ejecutar 'gestionar_lead_taller', 'requestServiceAppointment', 'crear_nuevo_lead' o 'createLead' sin contar con Nombre y Apellido y Ciudad.
+    }3. PROHIBIDO ejecutar 'gestionar_lead_taller', 'requestServiceAppointment', 'crear_nuevo_lead' o 'gestionar_lead_comercial' sin contar con Nombre y Apellido y Ciudad.
 `;
   }
 

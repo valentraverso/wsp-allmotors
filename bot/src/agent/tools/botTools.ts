@@ -871,7 +871,7 @@ export function buildBotStructuredTools(runtime: IBotToolRuntimeContext) {
     crearNuevoLeadTool,
     actualizarLeadActivoTool,
     registrarReclamoContactoTool,
-    createZohoLeadTool,
+    // createZohoLeadTool REMOVIDO: Redundante. El backend sincroniza automáticamente a Zoho CRM a través de gestionar_lead_comercial y guardar_datos_usuario
     evaluarCreditoTool,
     checkFinancingTool,
     gestionarLeadTallerTool,

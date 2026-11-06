@@ -139,6 +139,17 @@ app.post('/api/v1/bot/chat', authMiddleware, async (req, res) => {
                 headers: { 'x-api-key': apiKey },
                 timeout: 10000
             });
+            const convData = chatRes.data?.data?.conversation || chatRes.data?.data;
+            if (convData && convData.botActive === false) {
+                console.log(`[WSP BOT Chat] 🛑 Conversación ${conversationId} tiene el bot pausado manualmente. Omitiendo respuesta de IA.`);
+                return res.status(200).json({
+                    status: true,
+                    replyText: "",
+                    skipped: true,
+                    reason: "BOT_PAUSED"
+                });
+            }
+
             const rawMsgs = chatRes.data?.data?.messages || chatRes.data?.data?.history || chatRes.data?.data?.conversation?.messages || [];
             if (Array.isArray(rawMsgs) && rawMsgs.length > 0) {
                 history = rawMsgs.map((m: any) => {
@@ -212,6 +223,24 @@ app.post('/api/v1/bot/chat', authMiddleware, async (req, res) => {
         });
     } catch (error: any) {
         console.error(`[WSP BOT Omnichannel Chat Error]:`, error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Endpoint protegido para enviar mensajes manuales redactados desde la Intranet a través del socket de Baileys
+app.post('/api/v1/bot/send-message', authMiddleware, async (req, res) => {
+    try {
+        const { target, message } = req.body;
+        if (!target || !message) {
+            return res.status(400).json({ error: 'target y message son requeridos' });
+        }
+        await whatsappService.sendMessage(target, message);
+        res.status(200).json({
+            status: true,
+            message: 'Mensaje enviado exitosamente vía WhatsApp Baileys'
+        });
+    } catch (error: any) {
+        console.error(`[WSP BOT Send Message Error]:`, error.message);
         res.status(500).json({ error: error.message });
     }
 });

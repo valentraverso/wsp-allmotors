@@ -25,8 +25,12 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 const BOT_BOOT_TIME = Date.now();
 const groupCache = new Map<string, any>();
 const userStates = new Map<string, { step: string; history: any[]; lastActivity?: number }>();
-const userMessageBatches = new Map<string, { messages: string[]; timer: NodeJS.Timeout; msgObj: any; senderJid: string; senderNumber: string }>();
+const userMessageBatches = new Map<string, { messages: string[]; timer: NodeJS.Timeout; msgObj: any; senderJid: string; senderNumber: string; createdAt: number }>();
 const userQueues = new Map<string, { messages: string[]; msgObj: any; senderJid: string; senderNumber: string }>();
+
+const BATCH_DELAY_MS = 60000; // 1 minuto exacto reseteable tras el último mensaje en cadena
+const MAX_BATCH_MESSAGES = 50;
+const MAX_BATCH_WAIT_MS = 5 * 60 * 1000; // 5 minutos máximo anti-starvation
 
 function getApiKey(): string {
     let key = (process.env.BACKEND_API_KEY || process.env.SYSTEM_ADMIN_API_KEY || process.env.EXTERNAL_SERVICE_API_KEY || "").trim();
@@ -305,31 +309,42 @@ class BotWhatsappService {
                         continue;
                     }
 
-                    // Agrupación ráfaga inteligente (Debounce dinámico 15s a 30s reseteado a partir del último mensaje recibido)
-                    const computeBatchDelay = () => Math.floor(Math.random() * (30000 - 15000 + 1)) + 15000;
-
+                    // Bolsa de espera de 1 minuto reseteable tras cada mensaje en cadena
                     const existingBatch = userMessageBatches.get(userKey);
                     if (existingBatch) {
-                        if (existingBatch.timer) clearTimeout(existingBatch.timer);
+                        clearTimeout(existingBatch.timer);
                         existingBatch.messages.push(textMessage.trim());
                         existingBatch.msgObj = msg;
-                        const batchDelay = computeBatchDelay();
-                        console.log(`[WSP BOT Batch] 🔄 Nuevo mensaje de ${userKey}. Ráfaga reseteada a ${(batchDelay / 1000).toFixed(1)}s (Total mensajes acumulados: ${existingBatch.messages.length}): "${textMessage.trim()}"`);
-                        
-                        existingBatch.timer = setTimeout(async () => {
+
+                        const elapsed = Date.now() - existingBatch.createdAt;
+                        if (existingBatch.messages.length >= MAX_BATCH_MESSAGES || elapsed >= MAX_BATCH_WAIT_MS) {
+                            console.log(`[WSP BOT Batch] ⚡ Límite de bolsa alcanzado (${existingBatch.messages.length} mensajes, ${elapsed}ms). Forzando respuesta inmediata para ${userKey}.`);
                             const current = userMessageBatches.get(userKey);
-                            if (!current) return;
-                            const uniqueMsgs = Array.from(new Set(current.messages.map(m => m.trim()).filter(Boolean)));
-                            const fullText = uniqueMsgs.join('\n');
-                            const finalMsgObj = current.msgObj;
-                            const finalJid = current.senderJid;
-                            const finalNumber = current.senderNumber;
-                            userMessageBatches.delete(userKey);
-                            await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
-                        }, batchDelay);
+                            if (current) {
+                                const uniqueMsgs = Array.from(new Set(current.messages.map(m => m.trim()).filter(Boolean)));
+                                const fullText = uniqueMsgs.join('\n');
+                                const finalMsgObj = current.msgObj;
+                                const finalJid = current.senderJid;
+                                const finalNumber = current.senderNumber;
+                                userMessageBatches.delete(userKey);
+                                await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
+                            }
+                        } else {
+                            console.log(`[WSP BOT Batch] 🔄 Nuevo mensaje de ${userKey}. Bolsa acumulada (${existingBatch.messages.length} mensajes). Temporizador reiniciado a 1 minuto (60s): "${textMessage.trim()}"`);
+                            existingBatch.timer = setTimeout(async () => {
+                                const current = userMessageBatches.get(userKey);
+                                if (!current) return;
+                                const uniqueMsgs = Array.from(new Set(current.messages.map(m => m.trim()).filter(Boolean)));
+                                const fullText = uniqueMsgs.join('\n');
+                                const finalMsgObj = current.msgObj;
+                                const finalJid = current.senderJid;
+                                const finalNumber = current.senderNumber;
+                                userMessageBatches.delete(userKey);
+                                await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
+                            }, BATCH_DELAY_MS);
+                        }
                     } else {
-                        const batchDelay = computeBatchDelay();
-                        console.log(`[WSP BOT Batch] 🕒 Iniciando ráfaga de ${(batchDelay / 1000).toFixed(1)}s para ${userKey}: "${textMessage.trim()}"`);
+                        console.log(`[WSP BOT Batch] 🕒 Iniciando bolsa de espera de 1 minuto (60s) para ${userKey}: "${textMessage.trim()}"`);
                         const timer = setTimeout(async () => {
                             const current = userMessageBatches.get(userKey);
                             if (current) {
@@ -341,14 +356,15 @@ class BotWhatsappService {
                                 userMessageBatches.delete(userKey);
                                 await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
                             }
-                        }, batchDelay);
+                        }, BATCH_DELAY_MS);
 
                         userMessageBatches.set(userKey, {
                             messages: [textMessage.trim()],
                             timer,
                             msgObj: msg,
                             senderJid,
-                            senderNumber
+                            senderNumber,
+                            createdAt: Date.now()
                         });
                     }
                 }
@@ -365,8 +381,7 @@ class BotWhatsappService {
                         const existingBatch = userMessageBatches.get(userKey) || userMessageBatches.get(senderJid) || (senderNumber ? userMessageBatches.get(senderNumber) : undefined);
                         if (existingBatch) {
                             if (existingBatch.timer) clearTimeout(existingBatch.timer);
-                            const extendedDelay = Math.floor(Math.random() * (8000 - 7000 + 1)) + 7000;
-                            console.log(`[WSP BOT Presence] ✍️ Usuario ${userKey} está escribiendo... Extendiendo ventana de ráfaga en ${(extendedDelay / 1000).toFixed(1)}s`);
+                            console.log(`[WSP BOT Presence] ✍️ Usuario ${userKey} está escribiendo... Renovando bolsa de espera a 1 minuto (60s)`);
                             existingBatch.timer = setTimeout(async () => {
                                 const current = userMessageBatches.get(userKey) || userMessageBatches.get(senderJid) || (senderNumber ? userMessageBatches.get(senderNumber) : undefined);
                                 if (!current) return;
@@ -379,7 +394,7 @@ class BotWhatsappService {
                                 if (senderNumber) userMessageBatches.delete(senderNumber);
                                 userMessageBatches.delete(senderJid);
                                 await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
-                            }, extendedDelay);
+                            }, BATCH_DELAY_MS);
                         }
                     }
                 }
@@ -460,16 +475,34 @@ class BotWhatsappService {
             this.processingUsers.delete(senderJid);
             if (senderNumber) this.processingUsers.delete(senderNumber);
 
-            // Desencolar y responder mensajes acumulados mientras el bot estaba generando la respuesta
+            // Transferir mensajes acumulados mientras el bot estaba generando la respuesta hacia la bolsa de 60s
             const queued = userQueues.get(userKey);
             if (queued && queued.messages.length > 0) {
                 userQueues.delete(userKey);
                 const uniqueQueued = Array.from(new Set(queued.messages.map(m => m.trim()).filter(Boolean)));
-                const queuedText = uniqueQueued.join('\n');
-                console.log(`[WSP BOT Queue Flush] 🚀 Procesando ${queued.messages.length} mensaje(s) acumulado(s) en cola para ${userKey}: "${queuedText}"`);
-                setTimeout(() => {
-                    this.processUserMessage(userKey, queued.senderJid, queued.senderNumber, queuedText, queued.msgObj);
-                }, 1000);
+                console.log(`[WSP BOT Queue Flush] 🕒 ${queued.messages.length} mensaje(s) acumulados durante la respuesta. Trasladando a bolsa de 1 minuto (60s) para ${userKey}`);
+                
+                const timer = setTimeout(async () => {
+                    const current = userMessageBatches.get(userKey);
+                    if (current) {
+                        const uniqueMsgs = Array.from(new Set(current.messages.map(m => m.trim()).filter(Boolean)));
+                        const fullText = uniqueMsgs.join('\n');
+                        const finalMsgObj = current.msgObj;
+                        const finalJid = current.senderJid;
+                        const finalNumber = current.senderNumber;
+                        userMessageBatches.delete(userKey);
+                        await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
+                    }
+                }, BATCH_DELAY_MS);
+
+                userMessageBatches.set(userKey, {
+                    messages: uniqueQueued,
+                    timer,
+                    msgObj: queued.msgObj,
+                    senderJid: queued.senderJid,
+                    senderNumber: queued.senderNumber,
+                    createdAt: Date.now()
+                });
             }
         }
     }
@@ -535,6 +568,23 @@ class BotWhatsappService {
                         tradeIn: null,
                         leadStatus: leadProfile?.status || 'SIN LEAD ACTIVO'
                     };
+                }
+
+                // Verificar si el bot está desactivado manualmente para esta conversación
+                if (conversationId) {
+                    try {
+                        const convCheck = await axios.get(`${backendUrl}/api/v1/crm/conversations/${encodeURIComponent(conversationId)}`, {
+                            headers: { 'x-api-key': apiKey },
+                            timeout: 10000
+                        });
+                        const fetchedConv = convCheck.data?.data?.conversation || convCheck.data?.data;
+                        if (fetchedConv && fetchedConv.botActive === false) {
+                            console.log(`[WSP BOT Manual Mode] 🛑 El bot está desactivado manualmente para ${senderNumber || senderJid} (${conversationId}). Mensaje registrado en DB, no se genera respuesta automática.`);
+                            return;
+                        }
+                    } catch (checkErr) {
+                        // No bloqueante si la ruta falla
+                    }
                 }
             } catch (e: any) {
                 console.error(`[WSP BOT Context Error] ❌ Error general obteniendo contexto para ${senderJid}: ${e.message}`);
@@ -740,9 +790,9 @@ class BotWhatsappService {
                 });
 
                 if (aiResponse.text && aiResponse.text.trim()) {
-                    // Retardo aleatorio humano dinámico entre 15s y 30s
-                    const minDelay = 15000;
-                    const maxDelay = 30000;
+                    // Retardo humano natural breve post-bolsa (3s a 5s)
+                    const minDelay = 3000;
+                    const maxDelay = 5000;
                     const randomDelay = Math.floor(Math.random() * (maxDelay - minDelay + 1)) + minDelay;
                     const delaySeconds = (randomDelay / 1000).toFixed(1);
                     console.log(`[WSP BOT Delay] Espera humana de ${delaySeconds}s antes de enviar respuesta a ${senderNumber}...`);
@@ -949,6 +999,11 @@ class BotWhatsappService {
                         break;
                     }
 
+                    if (conv.botActive === false) {
+                        console.log(`[WSP BOT Recovery] Omitiendo ${conv.phone || conv.jid} porque el bot está desactivado manualmente.`);
+                        continue;
+                    }
+
                     if (this.processingUsers.has(conv.jid) || (conv.phone && this.processingUsers.has(conv.phone))) {
                         console.log(`[WSP BOT Recovery] Omitiendo ${conv.phone || conv.jid} porque ya cuenta con una respuesta en proceso en memoria.`);
                         continue;
@@ -983,7 +1038,7 @@ class BotWhatsappService {
                         continue;
                     }
 
-                    // Si el último mensaje es del usuario, procesar y responder activamente
+                    // Si el último mensaje es del usuario, procesar y responder activamente consolidando los mensajes en cadena
                     if (lastMsg && lastMsg.role === 'user') {
                         const userKey = (conv.phone || conv.jid).trim();
                         const lastTime = conv.updatedAt || conv.lastMessageAt || conv.createdAt;
@@ -1009,9 +1064,23 @@ class BotWhatsappService {
                             continue;
                         }
 
-                        console.log(`[WSP BOT Recovery] 🚀 Procesando y respondiendo mensaje pendiente de ${userKey}: "${lastMsg.text}"`);
+                        // Consolidar todos los mensajes consecutivos del usuario recibidos al final
+                        const trailingUserTexts: string[] = [];
+                        for (let i = messages.length - 1; i >= 0; i--) {
+                            const m = messages[i];
+                            if (m && m.role === 'user' && m.text && m.text.trim()) {
+                                trailingUserTexts.unshift(m.text.trim());
+                            } else {
+                                break;
+                            }
+                        }
+                        const consolidatedUserText = trailingUserTexts.length > 0 
+                            ? Array.from(new Set(trailingUserTexts)).join('\n')
+                            : lastMsg.text;
+
+                        console.log(`[WSP BOT Recovery] 🚀 Procesando y respondiendo mensaje pendiente de ${userKey} (${trailingUserTexts.length} texto(s) consolidados): "${consolidatedUserText}"`);
                         try {
-                            await this.processUserMessage(userKey, conv.jid, conv.phone || '', lastMsg.text, { pushName: conv.pushName || '' });
+                            await this.processUserMessage(userKey, conv.jid, conv.phone || '', consolidatedUserText, { pushName: conv.pushName || '' });
                         } finally {
                             // Garantía anti-bucle: marcar ATENDIDO en DB una vez tomado por el cron de recuperación
                             try {
