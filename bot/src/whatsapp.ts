@@ -843,7 +843,7 @@ class BotWhatsappService {
                     // Enviar mensaje de contingencia al usuario para no dejarlo sin respuesta
                     try {
                         if (this.isSocketReady()) {
-                            const fallbackText = "¡Hola! En este momento estamos experimentando una breve demora en el sistema. Ya derivé tu consulta a uno de nuestros asesores para responderte a la brevedad.";
+                            const fallbackText = "En este momento el servicio no está disponible y se le responderá lo antes posible.";
                             await this.sendMessage(senderJid, fallbackText);
                         }
                     } catch (fErr: any) {

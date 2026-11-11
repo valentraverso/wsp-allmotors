@@ -223,7 +223,11 @@ app.post('/api/v1/bot/chat', authMiddleware, async (req, res) => {
         });
     } catch (error: any) {
         console.error(`[WSP BOT Omnichannel Chat Error]:`, error.message);
-        res.status(500).json({ error: error.message });
+        res.status(200).json({
+            status: true,
+            replyText: "En este momento el servicio no está disponible y se le responderá lo antes posible.",
+            isFallback: true
+        });
     }
 });
 
