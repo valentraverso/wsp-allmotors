@@ -380,8 +380,26 @@ class BotWhatsappService {
                         const userKey = (senderNumber || senderJid).trim();
                         const existingBatch = userMessageBatches.get(userKey) || userMessageBatches.get(senderJid) || (senderNumber ? userMessageBatches.get(senderNumber) : undefined);
                         if (existingBatch) {
-                            if (existingBatch.timer) clearTimeout(existingBatch.timer);
-                            console.log(`[WSP BOT Presence] ✍️ Usuario ${userKey} está escribiendo... Renovando bolsa de espera a 1 minuto (60s)`);
+                            const elapsed = Date.now() - existingBatch.createdAt;
+                            // Si ya superó el tiempo máximo anti-starvation (5 minutos), despachar de inmediato
+                            if (elapsed >= MAX_BATCH_WAIT_MS) {
+                                console.log(`[WSP BOT Presence] ⚡ Tiempo máximo de espera alcanzado para ${userKey} (${elapsed}ms). Forzando respuesta.`);
+                                clearTimeout(existingBatch.timer);
+                                const uniqueMsgs = Array.from(new Set(existingBatch.messages.map(m => m.trim()).filter(Boolean)));
+                                const fullText = uniqueMsgs.join('\n');
+                                const finalMsgObj = existingBatch.msgObj;
+                                const finalJid = existingBatch.senderJid;
+                                const finalNumber = existingBatch.senderNumber;
+                                userMessageBatches.delete(userKey);
+                                if (senderNumber) userMessageBatches.delete(senderNumber);
+                                userMessageBatches.delete(senderJid);
+                                await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
+                                return;
+                            }
+
+                            // Si el usuario está escribiendo, otorgar un margen breve adicional (15 segundos) sin reiniciar a 60s
+                            clearTimeout(existingBatch.timer);
+                            console.log(`[WSP BOT Presence] ✍️ Usuario ${userKey} escribiendo... Concediendo 15s adicionales a la bolsa.`);
                             existingBatch.timer = setTimeout(async () => {
                                 const current = userMessageBatches.get(userKey) || userMessageBatches.get(senderJid) || (senderNumber ? userMessageBatches.get(senderNumber) : undefined);
                                 if (!current) return;
@@ -394,7 +412,7 @@ class BotWhatsappService {
                                 if (senderNumber) userMessageBatches.delete(senderNumber);
                                 userMessageBatches.delete(senderJid);
                                 await this.processUserMessage(userKey, finalJid, finalNumber, fullText, finalMsgObj);
-                            }, BATCH_DELAY_MS);
+                            }, 15000);
                         }
                     }
                 }
@@ -695,35 +713,6 @@ class BotWhatsappService {
                 ? (lastHistoryMsg.text || lastHistoryMsg.parts?.[0]?.text || '').toLowerCase() 
                 : '';
 
-            // REGLA CRÍTICA ANTI-DUPLICADOS: Si el último mensaje del historial ya fue del bot ('model'),
-            // y el texto entrante ya existía previamente en el historial, descartar de inmediato para no repetir respuestas.
-            if (lastHistoryMsg && lastHistoryMsg.role === 'model') {
-                const cleanIncoming = combinedText.trim().toLowerCase();
-                const wasAlreadyInHistory = history.some(h => {
-                    const hText = (h.text || h.parts?.[0]?.text || '').toString().trim().toLowerCase();
-                    return h.role === 'user' && (hText === cleanIncoming || cleanIncoming.includes(hText) || hText.includes(cleanIncoming));
-                });
-                if (wasAlreadyInHistory) {
-                    console.log(`[WSP BOT Guard] ⏭️ El mensaje de ${senderNumber} ("${combinedText}") ya fue respondido previamente en el historial. Silenciando y sincronizando.`);
-                    try {
-                        await axios.post(syncUrl, {
-                            jid: senderJid,
-                            phone: senderNumber,
-                            pushName: msg.pushName || "",
-                            conversationId,
-                            replyStatus: 'ATENDIDO',
-                            status: isClosedSession ? 'CLOSED' : 'ACTIVE',
-                            closeReason: isClosedSession ? 'USER_GOODBYE' : undefined,
-                            updatedAt: new Date()
-                        }, {
-                            headers: { 'x-api-key': apiKey },
-                            timeout: 15000
-                        });
-                    } catch (e) {}
-                    return;
-                }
-            }
-
             if (isOnlyCourtesyOrEmoji(combinedText) && (lastBotText.includes('de nada') || lastBotText.includes('que tengas') || lastBotText.includes('cualquier duda') || /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\s]*$/u.test(lastBotText))) {
                 console.log(`[WSP BOT Courtesy Cutoff] Bucle de cortesía/emoji detectado para ${senderNumber}. Silenciando respuesta, cerrando sesión y marcando ATENDIDO en DB.`);
                 try {
@@ -851,6 +840,16 @@ class BotWhatsappService {
                 // Si el error fue por socket desconectado, NO re-marcar PENDIENTE para evitar bucles zombis con el cron
                 const isSocketError = /disconnected|unauthenticated|closed|reading 'id'/i.test(responseErr.message || "");
                 if (!isSocketError) {
+                    // Enviar mensaje de contingencia al usuario para no dejarlo sin respuesta
+                    try {
+                        if (this.isSocketReady()) {
+                            const fallbackText = "¡Hola! En este momento estamos experimentando una breve demora en el sistema. Ya derivé tu consulta a uno de nuestros asesores para responderte a la brevedad.";
+                            await this.sendMessage(senderJid, fallbackText);
+                        }
+                    } catch (fErr: any) {
+                        console.error(`[WSP BOT Fallback Send Error]: ${fErr.message}`);
+                    }
+
                     try {
                         await axios.post(syncUrl, {
                             jid: senderJid,
